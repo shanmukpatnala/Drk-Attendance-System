@@ -5,8 +5,8 @@ export function Header({ appUser, todayCount }) {
     <header className="bg-red-900 text-white p-3 shadow-lg sticky top-0 z-50 border-b-4 border-red-700">
       <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
         <div className="flex items-center space-x-3 min-w-0">
-          <div className="bg-white rounded-full w-12 h-12 flex items-center justify-center shadow-sm">
-            <img src="/download.png" alt="Logo" className="w-9 h-9 object-contain" />
+          <div className="bg-white rounded-full w-14 h-14 flex items-center justify-center shadow-md border-2 border-red-700">
+            <img src="/logos/header-logo.png" alt="Header Logo" className="w-10 h-10 object-contain" />
           </div>
           <div className="min-w-0">
             <h1 className="text-sm font-extrabold tracking-wide uppercase leading-tight">
