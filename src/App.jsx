@@ -4,8 +4,10 @@ import emailjs from '@emailjs/browser';
 import { QRCodeCanvas } from 'qrcode.react';
 
 // Firebase & utilities
-import { auth, onAuthStateChanged, serverTimestamp, collection, addDoc, db, getDocs, updateDoc, doc, getDoc, query, where, onSnapshot, orderBy, setDoc } from './utils/firebase';
-import { hashPassword, safeData, compressImage, getTodayDateId } from './utils/helpers';
+import { auth, signInAnonymously, onAuthStateChanged, serverTimestamp, collection, addDoc, db, getDocs, updateDoc, doc, getDoc, query, where, onSnapshot, orderBy, setDoc } from './utils/firebase';
+import { hashPassword, safeData, getTodayDateId, compressImage } from './utils/helpers';
+import { appId, FACE_API_SCRIPT, MODEL_URL, EMAILJS_SERVICE_ID, EMAILJS_REPORT_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, SHOW_EMAIL_BUTTON, appConfig } from './app/constants';
+import { performLogin as performLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
 
 // Screen components
 import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
@@ -16,14 +18,6 @@ import { SendReportModal, HistoryDetailModal, IDCardModal, OverwriteModal } from
 // UI components
 import { Header, BottomNav, Message } from './components';
 
-const appId = 'drk-attendance-app';
-const FACE_API_SCRIPT = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
-const MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
-const EMAILJS_SERVICE_ID = "service_ymkaozj";
-const EMAILJS_REPORT_TEMPLATE_ID = "template_6mzqj9h";
-const EMAILJS_PUBLIC_KEY = "TGP_WBov-ZtaJ5Jsn";
-const SHOW_EMAIL_BUTTON = true;
-const appConfig = { apiKey: "AIzaSyC7fsX00zywhuvCzR_h8xTzv7V47ffy578", authDomain: "drk-attendance-app.firebaseapp.com", projectId: "drk-attendance-app", storageBucket: "drk-attendance-app.firebasestorage.app", messagingSenderId: "652472229762", appId: "1:652472229762:web:abe2cfa416c1ec6e0c799b" };
 
 export default function App() {
   // Auth
@@ -218,7 +212,17 @@ export default function App() {
       if (remember && username && password) {
         setLoginUser(username);
         setLoginPass(password);
-        performLogin(username, password, true);
+        performLoginHandler({
+          username,
+          password,
+          rememberFlag: true,
+          setStatusMsg,
+          setLoading,
+          setAppUser,
+          setView,
+          setLoginUser,
+          setLoginPass
+        });
       }
     } catch (e) {
       console.error("Remember me parse error", e);
@@ -233,34 +237,10 @@ export default function App() {
     if (token) {
       setForgotPasswordMode(true);
       setFpStep(2);
-      verifyResetToken(token);
+      verifyResetTokenHandler({ token, setResetTokenStatus, setResetUserDocId, setResetDocId });
     }
     // eslint-disable-next-line
   }, []);
-
-  const verifyResetToken = async (token) => {
-    setResetTokenStatus('checking');
-    try {
-      const qReset = query(
-        collection(db, "artifacts", appId, "public", "data", "password_resets"),
-        where("token", "==", token),
-        where("used", "==", false)
-      );
-      const snap = await getDocs(qReset);
-      if (snap.empty) {
-        setResetTokenStatus("invalid");
-        return;
-      }
-      const docSnap = snap.docs[0];
-      const data = docSnap.data();
-      setResetTokenStatus("valid");
-      setResetUserDocId(data.userDocId);
-      setResetDocId(docSnap.id);
-    } catch (error) {
-      console.error(error);
-      setResetTokenStatus("invalid");
-    }
-  };
 
   // -------------------------------------------------------------------
   // Camera handling
@@ -309,82 +289,23 @@ export default function App() {
     // eslint-disable-next-line
   }, [view, modelsLoaded, attStep, regStep, regMode, appUser, cameraFacing]);
 
-  // -------------------------------------------------------------------
-  // Utility: compress image to JPEG base64
-  // -------------------------------------------------------------------
-  const compressImage = (sourceElement) => {
-    const canvas = document.createElement('canvas');
-    const MAX_WIDTH = 320;
-    let width = sourceElement.videoWidth || sourceElement.naturalWidth || sourceElement.width;
-    let height = sourceElement.videoHeight || sourceElement.naturalHeight || sourceElement.height;
-    if (!width || !height) {
-      width = 320; height = 240;
-    }
-    const scaleSize = MAX_WIDTH / width;
-    canvas.width = MAX_WIDTH;
-    canvas.height = Math.round(height * scaleSize);
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(sourceElement, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.7);
-  };
+  
 
   // -------------------------------------------------------------------
-  // Authentication: perform login
+  // Authentication: perform login (delegated to handlers)
   // -------------------------------------------------------------------
-  const performLogin = async (username, password, rememberFlag) => {
-    if (!username || !password) {
-      setStatusMsg({ type: 'error', text: "Enter username and password" });
-      return;
-    }
-    setLoading(true);
-    try {
-      const hashed = await hashPassword(password);
-
-      // Try hashed first
-      let qHashed = query(
-        collection(db, 'artifacts', appId, 'public', 'data', 'app_users'),
-        where('username', '==', username.toLowerCase()),
-        where('password', '==', hashed)
-      );
-      let snap = await getDocs(qHashed);
-
-      // Fallback to plain text
-      if (snap.empty) {
-        const qPlain = query(
-          collection(db, 'artifacts', appId, 'public', 'data', 'app_users'),
-          where('username', '==', username.toLowerCase()),
-          where('password', '==', password)
-        );
-        snap = await getDocs(qPlain);
-      }
-
-      if (snap.empty) {
-        setStatusMsg({ type: 'error', text: "Invalid credentials" });
-      } else {
-        const data = snap.docs[0].data();
-        setAppUser({ ...data, id: snap.docs[0].id });
-        setStatusMsg(null);
-        setView('home');
-
-        if (rememberFlag) {
-          localStorage.setItem('drkAttendanceRemember', JSON.stringify({
-            username: username.toLowerCase(),
-            password,
-            remember: true
-          }));
-        } else {
-          localStorage.removeItem('drkAttendanceRemember');
-        }
-      }
-    } catch (e) {
-      console.error(e);
-      setStatusMsg({ type: 'error', text: "Login failed" });
-    }
-    setLoading(false);
-  };
-
   const handleLogin = async () => {
-    await performLogin(loginUser, loginPass, rememberMe);
+    await performLoginHandler({
+      username: loginUser,
+      password: loginPass,
+      rememberFlag: rememberMe,
+      setStatusMsg,
+      setLoading,
+      setAppUser,
+      setView,
+      setLoginUser,
+      setLoginPass
+    });
   };
 
   const handleLogout = () => {
@@ -399,110 +320,22 @@ export default function App() {
   // Forgot password / reset link
   // -------------------------------------------------------------------
   const handleSendResetLink = async () => {
-    if (!fpUser) {
-      setStatusMsg({ type: "error", text: "Please enter username" });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const qUser = query(
-        collection(db, "artifacts", appId, "public", "data", "app_users"),
-        where("username", "==", fpUser.toLowerCase())
-      );
-      const snap = await getDocs(qUser);
-      if (snap.empty) {
-        setStatusMsg({ type: "error", text: "Username not found" });
-        setLoading(false);
-        return;
-      }
-
-      const userDoc = snap.docs[0];
-      const userData = userDoc.data();
-
-      if (!userData.email) {
-        setStatusMsg({ type: "error", text: "No email stored for this user" });
-        setLoading(false);
-        return;
-      }
-
-      const token = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      const resetLink = `${window.location.origin}?reset=${token}`;
-
-      await addDoc(
-        collection(db, "artifacts", appId, "public", "data", "password_resets"),
-        {
-          username: userData.username,
-          email: userData.email,
-          userDocId: userDoc.id,
-          token,
-          used: false,
-          createdAt: serverTimestamp(),
-        }
-      );
-
-      await emailjs.send(
-        EMAILJS_SERVICE_ID,
-        // use your password reset template id (existing)
-        "template_4hmf0cp",
-        {
-          to_email: userData.email,
-          to_name: userData.name || userData.username,
-          reset_link: resetLink,
-        },
-        EMAILJS_PUBLIC_KEY
-      );
-
-      setStatusMsg({
-        type: "success",
-        text: `Reset link sent to ${userData.email}. Please check inbox or spam.`
-      });
-    } catch (error) {
-      console.error("EmailJS error:", error);
-      setStatusMsg({
-        type: "error",
-        text: "Failed to send reset link. Check EmailJS config."
-      });
-    }
-    setLoading(false);
+    await handleSendResetLinkHandler({ fpUser, setStatusMsg, setLoading });
   };
 
   const handleChangePassword = async () => {
-    if (fpNewPass.length < 8) {
-      setStatusMsg({ type: "error", text: "Password must be at least 8 characters." });
-      return;
-    }
-    if (!resetUserDocId || !resetDocId) {
-      setStatusMsg({ type: "error", text: "Invalid reset link." });
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const hashed = await hashPassword(fpNewPass);
-
-      const userRef = doc(db, "artifacts", appId, "public", "data", "app_users", resetUserDocId);
-      await updateDoc(userRef, { password: hashed });
-
-      const resetRef = doc(db, "artifacts", appId, "public", "data", "password_resets", resetDocId);
-      await updateDoc(resetRef, { used: true });
-
-      setStatusMsg({ type: 'success', text: "Password changed successfully! Please login." });
-
-      window.history.replaceState({}, document.title, window.location.pathname);
-
-      setTimeout(() => {
-        setForgotPasswordMode(false);
-        setFpStep(1);
-        setFpUser('');
-        setFpNewPass('');
-        setResetTokenStatus('idle');
-      }, 1500);
-    } catch (error) {
-      console.error(error);
-      setStatusMsg({ type: "error", text: "Failed to update password." });
-    }
-    setLoading(false);
+    await handleChangePasswordHandler({
+      fpNewPass,
+      resetUserDocId,
+      resetDocId,
+      setStatusMsg,
+      setLoading,
+      setForgotPasswordMode,
+      setFpStep,
+      setFpUser,
+      setFpNewPass,
+      setResetTokenStatus
+    });
   };
 
   // -------------------------------------------------------------------
@@ -1302,12 +1135,12 @@ export default function App() {
   // If not logged in and not reset flow, show login
   if (!appUser && !forgotPasswordMode) {
     return (
-      <div className="min-h-screen bg-white flex items-start justify-start p-6">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-start justify-start p-6">
         <div className="w-full max-w-md mx-auto">
-          <div className="flex justify-center mb-6 mt-6">
-            <img src="/download.png" alt="Logo" className="h-24 object-contain" />
+          <div className="flex flex-col items-center mb-6">
+            <img src="/logos/login-logo.png" alt="Login Logo" className="h-33 w-41 object-contain mb-5" />
+            <h2 className="text-center text-xl font-bold text-slate-800">Faculty Portal</h2>
           </div>
-          <h2 className="text-center text-2xl font-bold text-red-800 mb-4">Faculty Portal</h2>
 
           <Message />
 
@@ -1657,35 +1490,7 @@ export default function App() {
         </div>
       )}
 
-      {/* History detail modal */}
-      {showHistoryDetailModal && historyDetail && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[170] p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full overflow-auto">
-            <div className="p-4 border-b flex items-center gap-3">
-              <h3 className="text-lg font-bold">Present List — {historyDetail.dateId} {historyDetail.branch ? `· ${historyDetail.branch}` : ''} {historyDetail.year ? `· ${historyDetail.year}` : ''}</h3>
-              <button onClick={() => setShowHistoryDetailModal(false)} className="ml-auto text-slate-500"><X /></button>
-            </div>
-            <div className="p-4">
-              <div className="text-sm text-slate-600 mb-3">Total present: <b>{(historyDetail.rows || []).length}</b></div>
-              <div className="space-y-2 max-h-96 overflow-auto">
-                {(historyDetail.rows || []).map(r => (
-                  <div key={r.id} className="p-2 border rounded flex justify-between items-center">
-                    <div>
-                      <div className="font-bold">{r.name}</div>
-                      <div className="text-xs text-slate-500">{r.studentId} · {r.branch} · {r.year}</div>
-                    </div>
-                    <div className="text-xs text-slate-500">{r.timeIn || '-'}</div>
-                  </div>
-                ))}
-                {(!(historyDetail.rows || []).length) && <div className="text-sm text-slate-500">No records for this date.</div>}
-              </div>
-            </div>
-            <div className="p-4 border-t flex justify-end gap-2">
-              <button onClick={() => setShowHistoryDetailModal(false)} className="px-4 py-2 border rounded">Close</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* History detail modal (moved to separate component) */}
 
       {/* BOTTOM NAV */}
       <BottomNav view={view} setView={setView} />

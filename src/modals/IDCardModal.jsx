@@ -2,6 +2,18 @@ import React, { useRef } from 'react';
 import QRCode from 'qrcode.react';
 import { X, Printer } from 'lucide-react';
 
+/**
+ * HOW TO ADD LOGO:
+ * 1. Place your logo image file in: public/logos/drk-logo.png
+ * 2. Update the src in the header image below from "/download.png" to "/logos/drk-logo.png"
+ * Example: <img src="/logos/drk-logo.png" alt="Logo" className="h-12 w-12 object-contain" />
+ * 
+ * Logo requirements:
+ * - Format: PNG, JPG, SVG
+ * - Size: 48x48px or square format
+ * - Place in public/logos/ folder
+ */
+
 export function IDCardModal({ idCardData, onClose }) {
   const cardRef = useRef();
 
@@ -14,16 +26,24 @@ export function IDCardModal({ idCardData, onClose }) {
         <head>
           <title>ID Card</title>
           <style>
-            body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f0f0; }
-            .card { width: 400px; height: 250px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; padding: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.3); color: white; display: flex; gap: 20px; }
-            .left { flex: 1; display: flex; flex-direction: column; gap: 10px; justify-content: center; }
-            .right { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-            .photo { width: 100px; height: 120px; border-radius: 8px; object-fit: cover; border: 2px solid white; }
-            .qr { background: white; padding: 4px; border-radius: 4px; }
-            .name { font-size: 18px; font-weight: bold; }
-            .label { font-size: 10px; opacity: 0.8; }
-            .value { font-size: 12px; font-weight: 500; }
-            @media print { body { background: white; } }
+            body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f0f0; font-family: Arial, sans-serif; }
+            .card { width: 400px; background: white; border: 1px solid #ccc; border-radius: 12px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+            .header { display: flex; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #e0e0e0; align-items: center; margin-bottom: 16px; }
+            .logo { flex-shrink: 0; height: 48px; width: 48px; object-fit: contain; }
+            .college-info h2 { margin: 0; font-size: 14px; font-weight: bold; color: #333; }
+            .college-info p { margin: 4px 0 0 0; font-size: 11px; color: #666; }
+            .content { display: flex; gap: 12px; }
+            .left { flex: 1; }
+            .photo { height: 100px; width: 80px; border: 1px solid #999; border-radius: 6px; object-fit: cover; display: block; margin-bottom: 12px; flex-shrink: 0; }
+            .details { font-size: 12px; }
+            .detail-row { margin-bottom: 8px; }
+            .detail-label { font-size: 10px; font-weight: bold; color: #666; }
+            .detail-value { font-size: 11px; color: #333; font-weight: 500; word-break: break-word; }
+            .right { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+            .qr-box { background: white; padding: 4px; border: 1px solid #999; border-radius: 4px; }
+            .qr-label { font-size: 10px; color: #666; margin-top: 4px; text-align: center; }
+            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+            @media print { body { background: white; } .card { box-shadow: none; } }
           </style>
         </head>
         <body>
@@ -47,29 +67,66 @@ export function IDCardModal({ idCardData, onClose }) {
         </div>
 
         <div className="p-8 flex justify-center">
-          <div ref={cardRef} className="w-96 h-56 bg-gradient-to-br from-blue-600 to-purple-700 rounded-xl p-5 shadow-lg text-white flex gap-4">
-            <div className="flex-1 flex flex-col justify-center gap-2">
-              <div className="text-xl font-bold">{idCardData.name || 'N/A'}</div>
-              <div>
-                <div className="text-xs opacity-75">ID</div>
-                <div className="text-sm font-bold">{idCardData.studentId || 'N/A'}</div>
+          <div ref={cardRef} className="w-96 bg-white rounded-xl shadow-lg border border-slate-300" style={{ height: 'auto', padding: '16px' }}>
+            {/* Header: Logo + College Name */}
+            <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
+              <div className="flex-shrink-0">
+                <img src="/logos/drk-logo.png" alt="Logo" className="h-12 w-12 object-contain" />
               </div>
-              <div>
-                <div className="text-xs opacity-75">Branch</div>
-                <div className="text-sm">{idCardData.branch || 'N/A'}</div>
+              <div className="flex-1">
+                <div className="text-sm font-bold text-slate-800">DRK Institute Of Science & Technology</div>
+                <div className="text-xs text-slate-600">(Approved by AICTE & Affiliated to JNTUH)</div>
               </div>
-              <div>
-                <div className="text-xs opacity-75">Year</div>
-                <div className="text-sm">{idCardData.year || 'N/A'}</div>
-              </div>
-              <div className="text-xs opacity-75">Phone: {idCardData.phone || 'N/A'}</div>
             </div>
-            <div className="flex flex-col items-center justify-center gap-2">
-              {idCardData.photo && (
-                <img src={idCardData.photo} alt="Photo" className="w-24 h-28 rounded border-2 border-white object-cover" />
-              )}
-              <div className="bg-white p-2 rounded">
-                <QRCode value={idCardData.studentId || 'ID'} size={60} level="H" includeMargin={false} />
+
+            {/* Main Content: Photo + Details on Left, QR on Right */}
+            <div className="flex gap-3 mt-4">
+              {/* Left Section: Photo + Details */}
+              <div className="flex-1">
+                {/* Photo - Fixed Size */}
+                {idCardData.photo && (
+                  <div className="mb-3 overflow-hidden rounded border border-slate-300" style={{ height: '100px', width: '80px' }}>
+                    <img src={idCardData.photo} alt="Photo" className="w-full h-full object-cover" />
+                  </div>
+                )}
+
+                {/* Student Details */}
+                <div className="space-y-1 text-xs">
+                  <div>
+                    <div className="font-semibold text-slate-600">Name</div>
+                    <div className="font-bold text-slate-800 text-sm">{idCardData.name || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-600">Roll No</div>
+                    <div className="font-bold text-slate-800">{idCardData.studentId || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-600">Email</div>
+                    <div className="text-slate-800 truncate">{idCardData.email || 'N/A'}</div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <div>
+                      <div className="font-semibold text-slate-600">Branch</div>
+                      <div className="text-slate-800">{idCardData.branch || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-slate-600">Year</div>
+                      <div className="text-slate-800">{idCardData.year || 'N/A'}</div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-slate-600">Phone</div>
+                    <div className="text-slate-800">{idCardData.phone || 'N/A'}</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Section: QR Code (Small, Bottom Right) */}
+              <div className="flex flex-col items-center justify-end">
+                <div className="bg-white p-1 rounded border border-slate-300">
+                  <QRCode value={idCardData.studentId || 'ID'} size={50} level="H" includeMargin={false} />
+                </div>
+                <div className="text-xs text-slate-600 mt-1">QR ID</div>
               </div>
             </div>
           </div>
