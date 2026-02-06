@@ -6,9 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview",
-    "mobile": "powershell -ExecutionPolicy Bypass -File .\\scripts\\run-mobile.ps1",
-    "mobile:no-build": "powershell -ExecutionPolicy Bypass -File .\\scripts\\run-mobile.ps1 -NoBuild"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
