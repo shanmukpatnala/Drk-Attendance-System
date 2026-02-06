@@ -28,13 +28,31 @@ export const safeData = (raw) => {
   return safe;
 };
 
-// Hash password (simple crypto approach)
+// Hash password with fallback for mobile
 export const hashPassword = async (password) => {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  try {
+    // Try native Web Crypto API first (desktop)
+    if (crypto && crypto.subtle && crypto.subtle.digest) {
+      console.log('[HASH] Using Web Crypto API');
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+  } catch (e) {
+    console.warn('[HASH] Web Crypto API failed:', e.message);
+  }
+
+  // Fallback: Simple hash function for mobile browsers
+  console.log('[HASH] Using fallback hash function');
+  let hash = 0;
+  for (let i = 0; i < password.length; i++) {
+    const char = password.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  return 'fallback_' + Math.abs(hash).toString(16);
 };
 
 // Get today's ISO date string
