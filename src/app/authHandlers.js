@@ -11,28 +11,43 @@ export const performLogin = async ({ username, password, rememberFlag, setStatus
   }
   setLoading(true);
   try {
+    console.log(`[LOGIN] ===== LOGIN ATTEMPT =====`);
+    console.log(`[LOGIN] Username: ${username}`);
+    console.log(`[LOGIN] Device: ${navigator.userAgent}`);
+    console.log(`[LOGIN] Online: ${navigator.onLine}`);
+    
     const hashed = await hashPassword(password);
+    console.log(`[LOGIN] ✓ Password hashed`);
 
+    // Try 1: Hashed password
+    console.log(`[LOGIN] Trying hashed password...`);
     let qHashed = query(
       collection(db, 'artifacts', appId, 'public', 'data', 'app_users'),
       where('username', '==', username.toLowerCase()),
       where('password', '==', hashed)
     );
     let snap = await getDocs(qHashed);
+    console.log(`[LOGIN]   Result: ${snap.size === 0 ? '✗ not found' : `✓ found ${snap.size} users`}`);
 
+    // Try 2: Plain text password
     if (snap.empty) {
+      console.log(`[LOGIN] Trying plain text password...`);
       const qPlain = query(
         collection(db, 'artifacts', appId, 'public', 'data', 'app_users'),
         where('username', '==', username.toLowerCase()),
         where('password', '==', password)
       );
       snap = await getDocs(qPlain);
+      console.log(`[LOGIN]   Result: ${snap.size === 0 ? '✗ not found' : `✓ found ${snap.size} users`}`);
     }
 
     if (snap.empty) {
-      setStatusMsg({ type: 'error', text: "Invalid credentials" });
+      console.warn(`[LOGIN] ✗ User not found with username: "${username}"`);
+      console.warn(`[LOGIN] ⚠️  Check: 1) Username exists? 2) Password correct? 3) Database has users?`);
+      setStatusMsg({ type: 'error', text: `Invalid username or password\n(Check console for details)` });
     } else {
       const data = snap.docs[0].data();
+      console.log(`[LOGIN] ✓ LOGIN SUCCESS! User: ${data.name || username}`);
       setAppUser({ ...data, id: snap.docs[0].id });
       setStatusMsg(null);
       setView('home');
@@ -48,8 +63,27 @@ export const performLogin = async ({ username, password, rememberFlag, setStatus
       }
     }
   } catch (e) {
-    console.error(e);
-    setStatusMsg({ type: 'error', text: "Login failed" });
+    console.error(`[LOGIN] ✗ EXCEPTION`);
+    console.error(`[LOGIN] Type: ${e.constructor.name}`);
+    console.error(`[LOGIN] Code: ${e.code}`);
+    console.error(`[LOGIN] Message: ${e.message}`);
+    console.error(`[LOGIN] Stack:`, e);
+    
+    let errorMsg = 'Login error';
+    
+    if (!navigator.onLine) {
+      errorMsg = 'No internet - check WiFi';
+    } else if (e.code === 'permission-denied') {
+      errorMsg = 'Access denied - ask admin to check Firestore rules';
+    } else if (e.code === 'unauthenticated') {
+      errorMsg = 'Auth failed - refresh page and try again';
+    } else if (e.message?.includes('network')) {
+      errorMsg = 'Network error - check connection';
+    } else {
+      errorMsg = e.message || 'Unknown error';
+    }
+    
+    setStatusMsg({ type: 'error', text: errorMsg });
   }
   setLoading(false);
 };
@@ -58,7 +92,7 @@ export const verifyResetToken = async ({ token, setResetTokenStatus, setResetUse
   setResetTokenStatus('checking');
   try {
     const qReset = query(
-      collection(undefined, "artifacts", appId, "public", "data", "password_resets"),
+      collection(db, "artifacts", appId, "public", "data", "password_resets"),
       where("token", "==", token),
       where("used", "==", false)
     );
@@ -87,7 +121,7 @@ export const handleSendResetLink = async ({ fpUser, setStatusMsg, setLoading }) 
   setLoading(true);
   try {
     const qUser = query(
-      collection(undefined, "artifacts", appId, "public", "data", "app_users"),
+      collection(db, "artifacts", appId, "public", "data", "app_users"),
       where("username", "==", fpUser.toLowerCase())
     );
     const snap = await getDocs(qUser);
@@ -110,7 +144,7 @@ export const handleSendResetLink = async ({ fpUser, setStatusMsg, setLoading }) 
     const resetLink = `${window.location.origin}?reset=${token}`;
 
     await addDoc(
-      collection(undefined, "artifacts", appId, "public", "data", "password_resets"),
+      collection(db, "artifacts", appId, "public", "data", "password_resets"),
       {
         username: userData.username,
         email: userData.email,
@@ -160,10 +194,10 @@ export const handleChangePassword = async ({ fpNewPass, resetUserDocId, resetDoc
   try {
     const hashed = await hashPassword(fpNewPass);
 
-    const userRef = doc(undefined, "artifacts", appId, "public", "data", "app_users", resetUserDocId);
+    const userRef = doc(db, "artifacts", appId, "public", "data", "app_users", resetUserDocId);
     await updateDoc(userRef, { password: hashed });
 
-    const resetRef = doc(undefined, "artifacts", appId, "public", "data", "password_resets", resetDocId);
+    const resetRef = doc(db, "artifacts", appId, "public", "data", "password_resets", resetDocId);
     await updateDoc(resetRef, { used: true });
 
     setStatusMsg({ type: 'success', text: "Password changed successfully! Please login." });
