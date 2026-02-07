@@ -19,6 +19,8 @@ import { SendReportModal, HistoryDetailModal, IDCardModal, OverwriteModal } from
 import { Header, BottomNav, Message } from './components';
 
 
+
+
 export default function App() {
   // Auth
   const [firebaseUser, setFirebaseUser] = useState(null);
