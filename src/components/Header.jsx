@@ -10,7 +10,7 @@ export function Header({ appUser, todayCount }) {
           </div>
           <div className="min-w-0">
             <h1 className="text-sm font-extrabold tracking-wide uppercase leading-tight">
-              DRK Institute of Science & Technology
+              DRK Institute Of Science & Technology
             </h1>
             <div className="text-xs text-red-200 mt-0.5">
               (Approved by AICTE & Affiliated to JNTUH)
