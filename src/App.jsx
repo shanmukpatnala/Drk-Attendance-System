@@ -1127,7 +1127,7 @@ export default function App() {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-red-50 text-red-900">
         <RefreshCw className="w-12 h-12 animate-spin mb-4 text-red-700" />
-        <h2 className="text-2xl font-bold">DRK Institute System Loading...</h2>
+        <h2 className="text-2xl font-bold">DRKIST</h2>
       </div>
     );
   }
