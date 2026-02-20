@@ -71,21 +71,17 @@ export function IDCardModal({ idCardData, onClose }) {
             {/* Header: Logo + College Name */}
             <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
               <div className="flex-shrink-0">
-                <img src="/logos/drk-logo.png" alt="Logo" className="h-12 w-12 object-contain" />
-              </div>
-              <div className="flex-1">
-                <div className="text-sm font-bold text-slate-800">DRK Institute Of Science & Technology</div>
-                <div className="text-xs text-slate-600">(Approved by AICTE & Affiliated to JNTUH)</div>
+                <img src="/logos/login-logo.png" alt="Logo" className="h-12 w-13 object-contain" />
               </div>
             </div>
 
             {/* Main Content: Photo + Details on Left, QR on Right */}
             <div className="flex gap-3 mt-4">
               {/* Left Section: Photo + Details */}
-              <div className="flex-1">
+              <div className="flex-1 flex-col items-center">
                 {/* Photo - Fixed Size */}
                 {idCardData.photo && (
-                  <div className="mb-3 overflow-hidden rounded border border-slate-300" style={{ height: '100px', width: '80px' }}>
+                  <div className="mb-3 mx-auto overflow-hidden rounded border border-slate-300" style={{ height: '170px', width: '150px' }}>
                     <img src={idCardData.photo} alt="Photo" className="w-full h-full object-cover" />
                   </div>
                 )}
