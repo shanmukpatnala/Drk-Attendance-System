@@ -1,5 +1,5 @@
 import React from 'react';
-import { PieChart, Download, Upload } from 'lucide-react';
+import { PieChart, Download } from 'lucide-react';
 
 export function ReportsScreen({
   reportDate,
@@ -11,9 +11,7 @@ export function ReportsScreen({
   reportData,
   handleGenerateReport,
   handleDownloadReport,
-  sendReportToHODs,
   loading,
-  SHOW_EMAIL_BUTTON,
 }) {
   return (
     <div className="space-y-6">
