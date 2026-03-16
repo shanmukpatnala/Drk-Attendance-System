@@ -1,62 +1,21 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import QRCode from 'qrcode.react';
-import { X, Printer } from 'lucide-react';
+import { X } from 'lucide-react';
 
 /**
- * HOW TO ADD LOGO:
- * 1. Place your logo image file in: public/logos/drk-logo.png
- * 2. Update the src in the header image below from "/download.png" to "/logos/drk-logo.png"
- * Example: <img src="/logos/drk-logo.png" alt="Logo" className="h-12 w-12 object-contain" />
- * 
+ * HOW TO ADJUST THE LOGO:
+ * 1. Place your logo image file in: public/logos/login-logo.png
+ * 2. Update the src in the header image below (currently set to "/logos/login-logo.png").
+ * Example: <img src="/logos/login-logo.png" alt="Logo" className="h-14 w-14 object-contain" />
+ *
  * Logo requirements:
  * - Format: PNG, JPG, SVG
- * - Size: 48x48px or square format
+ * - Size: 48x48px or square format (recommended)
  * - Place in public/logos/ folder
  */
 
 export function IDCardModal({ idCardData, onClose }) {
-  const cardRef = useRef();
-
   if (!idCardData) return null;
-
-  const handlePrint = () => {
-    const printWindow = window.open('', '', 'height=600,width=800');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>ID Card</title>
-          <style>
-            body { margin: 0; display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f0f0f0; font-family: Arial, sans-serif; }
-            .card { width: 400px; background: white; border: 1px solid #ccc; border-radius: 12px; padding: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
-            .header { display: flex; gap: 12px; padding-bottom: 16px; border-bottom: 1px solid #e0e0e0; align-items: center; margin-bottom: 16px; }
-            .logo { flex-shrink: 0; height: 48px; width: 48px; object-fit: contain; }
-            .college-info h2 { margin: 0; font-size: 14px; font-weight: bold; color: #333; }
-            .college-info p { margin: 4px 0 0 0; font-size: 11px; color: #666; }
-            .content { display: flex; gap: 12px; }
-            .left { flex: 1; }
-            .photo { height: 100px; width: 80px; border: 1px solid #999; border-radius: 6px; object-fit: cover; display: block; margin-bottom: 12px; flex-shrink: 0; }
-            .details { font-size: 12px; }
-            .detail-row { margin-bottom: 8px; }
-            .detail-label { font-size: 10px; font-weight: bold; color: #666; }
-            .detail-value { font-size: 11px; color: #333; font-weight: 500; word-break: break-word; }
-            .right { display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
-            .qr-box { background: white; padding: 4px; border: 1px solid #999; border-radius: 4px; }
-            .qr-label { font-size: 10px; color: #666; margin-top: 4px; text-align: center; }
-            .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
-            @media print { body { background: white; } .card { box-shadow: none; } }
-          </style>
-        </head>
-        <body>
-          <div id="card"></div>
-        </body>
-      </html>
-    `);
-    setTimeout(() => {
-      printWindow.document.getElementById('card').innerHTML = cardRef.current.outerHTML;
-      printWindow.print();
-      printWindow.close();
-    }, 250);
-  };
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[170] p-4">
@@ -67,11 +26,11 @@ export function IDCardModal({ idCardData, onClose }) {
         </div>
 
         <div className="p-8 flex justify-center">
-          <div ref={cardRef} className="w-96 bg-white rounded-xl shadow-lg border border-slate-300" style={{ height: 'auto', padding: '16px' }}>
-            {/* Header: Logo + College Name */}
+          <div className="w-96 bg-white rounded-xl shadow-lg border border-slate-300" style={{ height: 'auto', padding: '16px' }}>
+            {/* Header: Logo */}
             <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
               <div className="flex-shrink-0">
-                <img src="/logos/login-logo.png" alt="Logo" className="h-12 w-13 object-contain" />
+                <img src="/logos/login-logo.png" alt="Logo" className="h-14 w-21 object-contain" />
               </div>
             </div>
 
@@ -130,9 +89,6 @@ export function IDCardModal({ idCardData, onClose }) {
 
         <div className="p-4 border-t flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 border rounded hover:bg-slate-50">Close</button>
-          <button onClick={handlePrint} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-2">
-            <Printer size={16} /> Print
-          </button>
         </div>
       </div>
     </div>
