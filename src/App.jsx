@@ -1352,9 +1352,7 @@ export default function App() {
             reportData={reportData}
             handleGenerateReport={handleGenerateReport}
             handleDownloadReport={handleDownloadReport}
-            sendReportToHODs={sendReportToHODs}
             loading={loading}
-            SHOW_EMAIL_BUTTON={SHOW_EMAIL_BUTTON}
           />
         )}
 
