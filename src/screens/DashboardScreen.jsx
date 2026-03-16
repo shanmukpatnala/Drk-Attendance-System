@@ -32,21 +32,6 @@ export function DashboardScreen({ appUser, students, setView, handleDashboardSta
           <div className="font-bold">Take Attendance</div>
           <div className="text-xs text-slate-500">Start live scan</div>
         </button>
-        <button onClick={() => setView('reports')} className="bg-white p-4 rounded-xl shadow text-left hover:shadow-lg transition">
-          <div className="font-bold">View Reports</div>
-          <div className="text-xs text-slate-500">Generate attendance reports</div>
-        </button>
-        <button onClick={() => setView('database')} className="bg-white p-4 rounded-xl shadow text-left hover:shadow-lg transition">
-          <div className="font-bold">Search Database</div>
-          <div className="text-xs text-slate-500">Find students</div>
-        </button>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <button onClick={() => setView('history')} className="bg-white p-4 rounded-xl shadow text-left hover:shadow-lg transition">
-          <div className="font-bold">Attendance History</div>
-          <div className="text-xs text-slate-500">View past records</div>
-        </button>
       </div>
     </div>
   );

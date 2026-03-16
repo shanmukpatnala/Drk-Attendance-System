@@ -73,12 +73,6 @@ export function ReportsScreen({
 
           <div className="mt-4 flex gap-3">
             <button onClick={handleDownloadReport} className="bg-blue-600 text-white px-4 py-2 rounded font-bold"><Download className="w-4 h-4 inline mr-2" /> Download CSV</button>
-
-            {SHOW_EMAIL_BUTTON && (
-              <button onClick={() => sendReportToHODs(reportBranch, reportDate, reportData)} disabled={loading} className="bg-green-600 text-white px-4 py-2 rounded font-bold">
-                <Upload className="w-4 h-4 inline mr-2" /> {loading ? 'Sending...' : 'Upload & Email HOD'}
-              </button>
-            )}
           </div>
         </div>
       )}

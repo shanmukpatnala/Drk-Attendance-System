@@ -636,9 +636,11 @@ export default function App() {
 
   // attendance UI handlers
   const handleDashboardStartAttendance = () => {
-    setView('attendance');
+    // Ensure camera starts immediately when entering attendance mode.
     setAttStep('camera');
+    setView('attendance');
     setStatusMsg({ type: 'info', text: 'Starting camera and scanning for faces...' });
+    startVideo();
   };
 
   const handleEndSession = () => {
