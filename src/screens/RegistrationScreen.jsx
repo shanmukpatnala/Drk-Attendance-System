@@ -27,6 +27,27 @@ export function RegistrationScreen({
   handleFileChange,
   toggleCameraFacing,
 }) {
+  const handleRegIdChange = (e) => {
+    let value = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '');
+    let formatted = '';
+
+    for (let i = 0; i < value.length && i < 10; i++) {
+      if ((i === 0 || i === 1) && /\d/.test(value[i])) {
+        formatted += value[i];
+      } else if (i === 2 && /[A-Z]/.test(value[i])) {
+        formatted += value[i];
+      } else if ((i === 3 || i === 4) && /\d/.test(value[i])) {
+        formatted += value[i];
+      } else if (i === 5 && /[A-Z]/.test(value[i])) {
+        formatted += value[i];
+      } else if (i >= 6 && /\d/.test(value[i])) {
+        formatted += value[i];
+      }
+    }
+
+    setRegId(formatted);
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 sm:gap-8">
       <div className="lg:w-1/2 space-y-4">
@@ -83,8 +104,8 @@ export function RegistrationScreen({
         </h2>
 
         <div className="space-y-3">
-          <input type="text" maxLength={20} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={e => setRegId(e.target.value.toUpperCase())} placeholder="ID (e.g. 21CSE01001)" disabled={regStep === 'camera'} />
-          <input type="text" className="w-full p-3 border rounded-lg" value={regName} onChange={e => setRegName(e.target.value)} placeholder="Full Name" disabled={regStep === 'camera'} />
+          <input type="text" maxLength={10} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={handleRegIdChange} placeholder="22N71A6655" disabled={regStep === 'camera'} />
+          <input type="text" className="w-full p-3 border rounded-lg" value={regName} onChange={e => setRegName(e.target.value.toUpperCase())} placeholder="Full Name" disabled={regStep === 'camera'} />
           <div className="grid grid-cols-2 gap-4">
             <select className="w-full p-3 border rounded-lg" value={regBranch} onChange={e => setRegBranch(e.target.value)} disabled={regStep === 'camera'}>
               <option>CSE</option><option>CSM</option><option>CSD</option><option>CSC</option><option>ECE</option><option>EEE</option><option>MECH</option><option>CIVIL</option>

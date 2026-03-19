@@ -357,10 +357,10 @@ export default function App() {
       return;
     }
     // simple validation
-    if (regId.length < 6 || !/^\d{10}$/.test(regPhone)) {
+    if (!/^\d{2}[A-Z]{4}\d{4}$/.test(regId) || !/^\d{10}$/.test(regPhone)) {
       setStatusMsg({
         type: 'error',
-        text: "Invalid ID or Phone (phone must be 10 digits)"
+        text: "Invalid Roll No or Phone (roll no format: 22N71A6655, phone must be 10 digits)"
       });
       return;
     }
