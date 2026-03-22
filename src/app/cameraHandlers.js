@@ -8,7 +8,7 @@ export const stopVideo = (videoRef) => {
 export const startVideo = (videoRef, cameraFacing, setStatusMsg) => {
   stopVideo(videoRef);
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 720 } }
+    video: { facingMode: cameraFacing, width: { ideal: 480 }, height: { ideal: 360 }, frameRate: { ideal: 30, max: 60 } }
   })
     .then(stream => {
       if (videoRef.current) {

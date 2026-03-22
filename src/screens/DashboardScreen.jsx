@@ -1,6 +1,18 @@
 import React from 'react';
 
-export function DashboardScreen({ appUser, students, setView, handleDashboardStartAttendance }) {
+const PROMOTION_YEAR_OPTIONS = ['All', '1st', '2nd', '3rd', '4th'];
+
+export function DashboardScreen({
+  appUser,
+  students,
+  setView,
+  handleDashboardStartAttendance,
+  promoteYear,
+  setPromoteYear,
+  handlePromoteYears
+}) {
+  const isAdmin = (appUser?.role || '').toLowerCase() === 'admin';
+
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-r from-red-800 to-red-900 rounded-2xl p-4 text-white shadow-xl">
@@ -23,7 +35,7 @@ export function DashboardScreen({ appUser, students, setView, handleDashboardSta
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3`}>
         <button onClick={() => setView('register')} className="bg-white p-4 rounded-xl shadow text-left hover:shadow-lg transition">
           <div className="font-bold">Register Student</div>
           <div className="text-xs text-slate-500">Add new student profile</div>
@@ -32,6 +44,31 @@ export function DashboardScreen({ appUser, students, setView, handleDashboardSta
           <div className="font-bold">Take Attendance</div>
           <div className="text-xs text-slate-500">Start live scan</div>
         </button>
+        {isAdmin && (
+          <div className="bg-white p-4 rounded-xl shadow hover:shadow-lg transition">
+            <div className="font-bold">Upgrade Year</div>
+            <div className="text-xs text-slate-500">Select a single year to promote that batch only</div>
+            <div className="mt-3 flex flex-col gap-3">
+              <select
+                className="w-full p-3 border rounded-lg text-sm"
+                value={promoteYear}
+                onChange={e => setPromoteYear(e.target.value)}
+              >
+                {PROMOTION_YEAR_OPTIONS.map(year => (
+                  <option key={year} value={year}>
+                    {year === 'All' ? 'All Years' : `${year} Year`}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={handlePromoteYears}
+                className="bg-red-800 text-white py-3 rounded-lg font-bold"
+              >
+                {promoteYear === 'All' ? 'Promote All Years' : `Promote ${promoteYear} Year`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

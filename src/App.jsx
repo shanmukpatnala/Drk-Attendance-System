@@ -13,10 +13,25 @@ import { performLogin as performLoginHandler, handleSendResetLink as handleSendR
 import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
 
 // Modal components
-import { SendReportModal, HistoryDetailModal, IDCardModal, OverwriteModal } from './modals';
+import { SendReportModal, HistoryDetailModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal } from './modals';
 
 // UI components
 import { Header, BottomNav, Message } from './components';
+
+const CAMERA_CONSTRAINTS = {
+  width: { ideal: 640 },
+  height: { ideal: 360 },
+  frameRate: { ideal: 24, max: 30 }
+};
+
+const ATTENDANCE_MATCH_THRESHOLD = 0.6;
+const ATTENDANCE_DETECTOR_OPTIONS = {
+  inputSize: 160,
+  scoreThreshold: 0.25
+};
+
+const UNKNOWN_FACE_SIGNATURE_PRECISION = 1;
+const UNKNOWN_FACE_SKIP_COOLDOWN_MS = 5000;
 
 
 
@@ -74,6 +89,7 @@ export default function App() {
   const [reportBranch, setReportBranch] = useState('CSE');
   const [reportYear, setReportYear] = useState('1st');
   const [reportData, setReportData] = useState(null);
+  const [promoteYear, setPromoteYear] = useState('All');
 
   // Database search & ID card
   const [searchQuery, setSearchQuery] = useState('');
@@ -106,6 +122,10 @@ export default function App() {
   // Attendance sets
   const [markedToday, setMarkedToday] = useState(new Set());
   const localMarkedRef = useRef(new Set());
+  const markedTodayRef = useRef(new Set());
+  const promptedUnidentifiedRef = useRef(new Set()); // Track which unidentified faces we've already prompted
+  const scanInProgressRef = useRef(false);
+  const scanTimeoutRef = useRef(null);
 
   // header DB count for today
   const [todayCount, setTodayCount] = useState(0);
@@ -124,6 +144,11 @@ export default function App() {
   // history filters
   const [historyBranch, setHistoryBranch] = useState('');
   const [historyYear, setHistoryYear] = useState('');
+
+  // Unidentified face modal
+  const [unidentifiedFaceModal, setUnidentifiedFaceModal] = useState(null);
+  const unidentifiedFaceModalRef = useRef(null);
+  const unknownFaceSkipUntilRef = useRef(0);
 
   // -------------------------------------------------------------------
   // INIT: Firebase anonymous auth + face-api script
@@ -156,9 +181,12 @@ export default function App() {
     try {
       const faceapi = window.faceapi;
       if (!faceapi) throw new Error("Face API not loaded");
-      await faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL);
-      await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-      await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+      await Promise.all([
+        faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL),
+        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL)
+      ]);
       setModelsLoaded(true);
       console.log("Face-api models loaded");
     } catch (err) {
@@ -232,6 +260,14 @@ export default function App() {
     // eslint-disable-next-line
   }, []);
 
+  useEffect(() => {
+    markedTodayRef.current = markedToday;
+  }, [markedToday]);
+
+  useEffect(() => {
+    unidentifiedFaceModalRef.current = unidentifiedFaceModal;
+  }, [unidentifiedFaceModal]);
+
   // process reset token from URL
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -257,11 +293,17 @@ export default function App() {
   const startVideo = () => {
     stopVideo();
     navigator.mediaDevices.getUserMedia({
-      video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 720 } }
+      video: {
+        facingMode: cameraFacing,
+        ...CAMERA_CONSTRAINTS
+      }
     })
       .then(stream => {
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          videoRef.current.onloadedmetadata = () => {
+            videoRef.current?.play?.().catch(() => {});
+          };
         }
       })
       .catch(err => {
@@ -357,10 +399,10 @@ export default function App() {
       return;
     }
     // simple validation
-    if (regId.length < 6 || !/^\d{10}$/.test(regPhone)) {
+    if (!/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{10}$/.test(regId) || !/^\d{10}$/.test(regPhone)) {
       setStatusMsg({
         type: 'error',
-        text: "Invalid ID or Phone (phone must be 10 digits)"
+        text: "Invalid Roll No or Phone (e.g., 22N71A6655, phone 10 digits)"
       });
       return;
     }
@@ -393,6 +435,77 @@ export default function App() {
     setLoading(false);
   };
 
+  const buildUnknownFaceSignature = (descriptor) => {
+    if (!descriptor || typeof descriptor.length !== 'number') return null;
+    return Array.from(descriptor)
+      .slice(0, 12)
+      .map(value => Number(value).toFixed(UNKNOWN_FACE_SIGNATURE_PRECISION))
+      .join('|');
+  };
+
+  const captureFaceFromDetection = (faceDescription) => {
+    const video = videoRef.current;
+    const box = faceDescription?.detection?.box;
+    if (!video || !box) return null;
+
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+    if (!sourceWidth || !sourceHeight) return null;
+
+    const padX = box.width * 0.35;
+    const padY = box.height * 0.45;
+    const sx = Math.max(0, Math.floor(box.x - padX));
+    const sy = Math.max(0, Math.floor(box.y - padY));
+    const sw = Math.min(sourceWidth - sx, Math.ceil(box.width + padX * 2));
+    const sh = Math.min(sourceHeight - sy, Math.ceil(box.height + padY * 2));
+
+    if (sw <= 0 || sh <= 0) return null;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    canvas.width = sw;
+    canvas.height = sh;
+    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+    return canvas.toDataURL('image/jpeg', 0.82);
+  };
+
+  const promptUnknownFaceRegistration = (faceDescription) => {
+    if (Date.now() < unknownFaceSkipUntilRef.current) return false;
+
+    const signature = buildUnknownFaceSignature(faceDescription?.descriptor);
+    if (!signature || promptedUnidentifiedRef.current.has(signature)) return false;
+
+    const facePhoto = captureFaceFromDetection(faceDescription);
+    if (!facePhoto) return false;
+
+    promptedUnidentifiedRef.current.add(signature);
+    setUnidentifiedFaceModal({
+      signature,
+      facePhoto,
+      onRegister: handleRegisterUnidentifiedFace
+    });
+    setStatusMsg({
+      type: 'warning',
+      text: 'New face found. Fill the form to register this student.'
+    });
+    return true;
+  };
+
+  const closeUnidentifiedFaceModal = () => {
+    setUnidentifiedFaceModal(null);
+
+    if (view === 'attendance' && attStep === 'camera' && modelsLoaded) {
+      scheduleNextScan(200);
+    }
+  };
+
+  const handleSkipUnknownFace = () => {
+    unknownFaceSkipUntilRef.current = Date.now() + UNKNOWN_FACE_SKIP_COOLDOWN_MS;
+    closeUnidentifiedFaceModal();
+  };
+
   // check and register: uses face-api only when regMode==='live' and regStep==='camera'
   const handleCheckAndRegister = async (dataDocId = null) => {
     if (!firebaseUser) return;
@@ -420,7 +533,7 @@ export default function App() {
       const detections = await faceapi
         .detectSingleFace(
           inputSource,
-          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 })
+          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 })
         )
         .withFaceLandmarks()
         .withFaceDescriptor();
@@ -447,9 +560,10 @@ export default function App() {
         );
 
       if (labeledDescriptors.length > 0) {
-        const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.45);
+        const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.3);
         const best = matcher.findBestMatch(detections.descriptor);
-        if (best.label !== 'unknown') {
+        // Only reject if distance is very low (close match)
+        if (best.label !== 'unknown' && best.distance < 0.5) {
           const existingFaceStudent = students.find(s => s.studentId === best.label);
           setStatusMsg({
             type: 'error',
@@ -564,28 +678,187 @@ export default function App() {
   };
 
 
-  // scanning loop
+  // Ref to cache face matcher between scans (avoid recreating)
+  const faceMatcherRef = useRef(null);
+  const studentMapRef = useRef(null);
+  const detectionStatsRef = useRef({ checked: 0 });
+  const scheduleNextScan = (delay = 650) => {
+    if (scanTimeoutRef.current) {
+      clearTimeout(scanTimeoutRef.current);
+    }
+
+    scanTimeoutRef.current = setTimeout(() => {
+      scanTimeoutRef.current = null;
+      runScanner();
+    }, delay);
+  };
+  const runScanner = async () => {
+    if (scanInProgressRef.current) return;
+    if (view !== 'attendance' || attStep !== 'camera' || !modelsLoaded) return;
+    if (unidentifiedFaceModalRef.current) return;
+
+    if (!videoRef.current || videoRef.current.readyState < 2) {
+      scheduleNextScan(400);
+      return;
+    }
+
+    const faceapi = window.faceapi;
+    if (!faceapi) {
+      scheduleNextScan(800);
+      return;
+    }
+
+    scanInProgressRef.current = true;
+
+    try {
+      if (!studentMapRef.current || studentMapRef.current.size !== students.length) {
+        studentMapRef.current = new Map(students.map(s => [s.studentId, s]));
+      }
+
+      if (!faceMatcherRef.current) {
+        const labeledDescriptors = students
+          .filter(s => Array.isArray(s.descriptor) && s.descriptor.length)
+          .map(s => new faceapi.LabeledFaceDescriptors(s.studentId, [new Float32Array(s.descriptor)]));
+
+        if (!labeledDescriptors.length) {
+          scheduleNextScan(1000);
+          return;
+        }
+
+        faceMatcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, ATTENDANCE_MATCH_THRESHOLD);
+      }
+
+      const detections = await faceapi
+        .detectAllFaces(
+          videoRef.current,
+          new faceapi.TinyFaceDetectorOptions(ATTENDANCE_DETECTOR_OPTIONS)
+        )
+        .withFaceLandmarks()
+        .withFaceDescriptors();
+
+      if (!detections?.length) {
+        scheduleNextScan(250);
+        return;
+      }
+
+      const recognizedStudents = [];
+      let shouldPromptUnknownFace = false;
+
+      for (const det of detections) {
+        const best = faceMatcherRef.current.findBestMatch(det.descriptor);
+        if (best.label === 'unknown' || best.distance > ATTENDANCE_MATCH_THRESHOLD) {
+          if (!shouldPromptUnknownFace) {
+            shouldPromptUnknownFace = promptUnknownFaceRegistration(det);
+          }
+          continue;
+        }
+
+        const sid = best.label;
+        if (markedTodayRef.current.has(sid) || localMarkedRef.current.has(sid)) continue;
+
+        const st = studentMapRef.current.get(sid);
+        if (!st || st.year === 'Passed Out') continue;
+
+        localMarkedRef.current.add(sid);
+        recognizedStudents.push(st);
+      }
+
+      if (recognizedStudents.length) {
+        setMarkedToday(prev => {
+          const next = new Set(prev);
+          recognizedStudents.forEach(student => next.add(student.studentId));
+          return next;
+        });
+
+        recognizedStudents.forEach(student => {
+          logAttendance(student, 'Present');
+        });
+
+        setStatusMsg({
+          type: 'success',
+          text: `Marked ${recognizedStudents.length} present in under 5 seconds`
+        });
+      }
+
+      if (shouldPromptUnknownFace) {
+        return;
+      }
+
+      scheduleNextScan(recognizedStudents.length ? 120 : 180);
+    } catch (err) {
+      console.error('scan error', err);
+      scheduleNextScan(400);
+    } finally {
+      scanInProgressRef.current = false;
+    }
+  };
+
+  // scanning loop - ultra fast optimized with better recognition
+  useEffect(() => {
+    if (view === 'attendance' && attStep === 'camera' && modelsLoaded) {
+      (async () => {
+        const set = await getTodayMarkedSet();
+        setMarkedToday(set);
+        markedTodayRef.current = set;
+        localMarkedRef.current = new Set();
+        detectionStatsRef.current = { checked: 0 };
+        faceMatcherRef.current = null;
+        studentMapRef.current = null;
+        scanInProgressRef.current = false;
+        runScanner();
+      })();
+      setContinuousScanActive(true);
+    } else {
+      setContinuousScanActive(false);
+      faceMatcherRef.current = null;
+      studentMapRef.current = null;
+      scanInProgressRef.current = false;
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
+    }
+
+    return () => {
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
+      scanInProgressRef.current = false;
+    };
+    // eslint-disable-next-line
+  }, [view, attStep, modelsLoaded, students]);
+
+  /*
   useEffect(() => {
     let scanInterval = null;
+    
     const runScanner = async () => {
       if (!modelsLoaded || !videoRef.current || videoRef.current.readyState < 2) return;
       const faceapi = window.faceapi;
       if (!faceapi) return;
 
       try {
-        const labeledDescriptors = students
-          .filter(s => Array.isArray(s.descriptor) && s.descriptor.length)
-          .map(s => new faceapi.LabeledFaceDescriptors(s.studentId, [new Float32Array(s.descriptor)]));
-
-        if (!labeledDescriptors.length) {
-          return;
+        // Build student map once
+        if (!studentMapRef.current) {
+          studentMapRef.current = new Map(students.map(s => [s.studentId, s]));
         }
 
-        const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
+        // Build matcher once and cache - lower threshold for more generous matching
+        if (!faceMatcherRef.current) {
+          const labeledDescriptors = students
+            .filter(s => Array.isArray(s.descriptor) && s.descriptor.length)
+            .map(s => new faceapi.LabeledFaceDescriptors(s.studentId, [new Float32Array(s.descriptor)]));
 
+          if (labeledDescriptors.length === 0) return;
+
+          // Threshold 0.4 = more generous, catches more matches
+          faceMatcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, 0.4);
+        }
+
+        // Very aggressive detection - catch even partial/angled faces
         const detections = await faceapi
-          .detectAllFaces(videoRef.current, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.5 }))
-          .withFaceLandmarks()
+          .detectAllFaces(videoRef.current, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.35 }))
           .withFaceDescriptors();
 
         if (!detections || !detections.length) {
@@ -593,13 +866,22 @@ export default function App() {
         }
 
         let newlyMarked = 0;
+
         for (const det of detections) {
-          const best = faceMatcher.findBestMatch(det.descriptor);
-          if (best.label === 'unknown') continue;
+          // Get best match
+          const best = faceMatcherRef.current.findBestMatch(det.descriptor);
+          
+          // More generous matching: accept distance up to 0.65
+          if (best.label === 'unknown' || best.distance > 0.65) continue;
+
           const sid = best.label;
           if (markedToday.has(sid) || localMarkedRef.current.has(sid)) continue;
-          const st = students.find(s => s.studentId === sid);
+          
+          const st = studentMapRef.current.get(sid);
           if (!st) continue;
+          
+          if (st.year === 'Passed Out') continue;
+          
           localMarkedRef.current.add(sid);
           setMarkedToday(prev => new Set(prev).add(sid));
           await logAttendance(st, 'Present');
@@ -607,7 +889,7 @@ export default function App() {
         }
 
         if (newlyMarked > 0) {
-          setStatusMsg({ type: 'success', text: `Marked ${newlyMarked} new students Present` });
+          setStatusMsg({ type: 'success', text: `✓ Marked ${newlyMarked} present` });
         }
       } catch (err) {
         console.error('scan error', err);
@@ -619,13 +901,16 @@ export default function App() {
         const set = await getTodayMarkedSet();
         setMarkedToday(set);
         localMarkedRef.current = new Set();
+        detectionStatsRef.current = { checked: 0 };
       })();
 
       runScanner();
-      scanInterval = setInterval(runScanner, 2500);
+      scanInterval = setInterval(runScanner, 1500); // Blazing fast 1.5-second interval
       setContinuousScanActive(true);
     } else {
       setContinuousScanActive(false);
+      faceMatcherRef.current = null; // Reset matcher when not scanning
+      studentMapRef.current = null;
     }
 
     return () => {
@@ -633,6 +918,7 @@ export default function App() {
     };
     // eslint-disable-next-line
   }, [view, attStep, modelsLoaded, students]);
+  */
 
   // attendance UI handlers
   const handleDashboardStartAttendance = () => {
@@ -643,10 +929,102 @@ export default function App() {
     startVideo();
   };
 
+  const handlePromoteYears = async () => {
+    if (!firebaseUser) return;
+    const isAdmin = (appUser?.role || '').toLowerCase() === 'admin';
+    if (!isAdmin) {
+      setStatusMsg({ type: 'error', text: 'Only admins can upgrade student years.' });
+      return;
+    }
+    setLoading(true);
+    try {
+      const studentCollection = collection(db, 'artifacts', appId, 'public', 'data', 'students');
+      const snapshot = await getDocs(studentCollection);
+      const updates = [];
+      const nextYearByCurrentYear = {
+        '1st': '2nd',
+        '2nd': '3rd',
+        '3rd': '4th',
+        '4th': 'Passed Out'
+      };
+
+      snapshot.forEach(docItem => {
+        const st = safeData(docItem.data());
+        const nextYear = nextYearByCurrentYear[st.year];
+        if (!nextYear) return;
+
+        if (promoteYear === 'All' || st.year === promoteYear) {
+          updates.push(updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', docItem.id), { year: nextYear }));
+        }
+      });
+      await Promise.all(updates);
+      setStatusMsg({
+        type: 'success',
+        text: promoteYear === 'All'
+          ? `Promoted ${updates.length} students across all active years`
+          : `Promoted ${updates.length} ${promoteYear} year students to ${nextYearByCurrentYear[promoteYear]}`
+      });
+    } catch (error) {
+      console.error('Year promotion failed:', error);
+      setStatusMsg({ type: 'error', text: 'Failed to promote years' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleEndSession = () => {
     setAttStep('setup');
     stopVideo();
+    promptedUnidentifiedRef.current.clear(); // Reset tracked unidentified faces
+    unknownFaceSkipUntilRef.current = 0;
+    setUnidentifiedFaceModal(null);
+    if (scanTimeoutRef.current) {
+      clearTimeout(scanTimeoutRef.current);
+      scanTimeoutRef.current = null;
+    }
+    scanInProgressRef.current = false;
     setStatusMsg({ type: 'info', text: 'Attendance session ended.' });
+  };
+
+  const handleRegisterUnidentifiedFace = async (studentData) => {
+    try {
+      setStatusMsg({ type: 'info', text: 'Registering unidentified person...' });
+
+      // Extract face descriptor from the photo
+      const faceapi = window.faceapi;
+      const img = new Image();
+      img.src = studentData.facePhoto;
+
+      await new Promise((resolve) => {
+        img.onload = resolve;
+      });
+
+      const detections = await faceapi
+        .detectSingleFace(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (!detections) {
+        throw new Error('No face detected in the captured photo');
+      }
+
+      // Prepare registration data
+      const regData = {
+        ...studentData,
+        descriptor: Array.from(detections.descriptor),
+        totalAttendance: 0,
+        lastAttendance: null
+      };
+
+      // Register the student
+      await performRegistration(regData);
+
+      setStatusMsg({ type: 'success', text: `Successfully registered ${studentData.name}` });
+      closeUnidentifiedFaceModal();
+    } catch (error) {
+      console.error('Error registering unidentified face:', error);
+      setStatusMsg({ type: 'error', text: 'Failed to register person: ' + error.message });
+    }
   };
 
   // -------------------------------------------------------------------
@@ -657,10 +1035,14 @@ export default function App() {
     // allow "All" selection
     const branchFilter = reportBranch === 'All' ? null : reportBranch;
     const yearFilter = reportYear === 'All' ? null : reportYear;
+    const includePassedOut = reportYear === 'Passed Out';
 
     // get class students (respecting 'All')
     const classStudents = students.filter(
-      s => (branchFilter ? s.branch === branchFilter : true) && (yearFilter ? s.year === yearFilter : true)
+      s =>
+        (branchFilter ? s.branch === branchFilter : true) &&
+        (yearFilter ? s.year === yearFilter : s.year !== 'Passed Out') &&
+        (includePassedOut ? s.year === 'Passed Out' : true)
     );
 
     const dateId = reportDate;
@@ -1295,6 +1677,14 @@ export default function App() {
       <IDCardModal idCardData={idCardData} onClose={() => setIdCardData(null)} />
       <OverwriteModal showModal={overwriteModal !== null} data={overwriteModal} onConfirm={(d) => { setOverwriteModal(null); performRegistration(d.newData, d.docId); }} onCancel={() => setOverwriteModal(null)} />
 
+      <UnidentifiedFaceModal
+        isOpen={unidentifiedFaceModal !== null}
+        onClose={handleSkipUnknownFace}
+        onEndSession={handleEndSession}
+        facePhoto={unidentifiedFaceModal?.facePhoto}
+        onRegister={unidentifiedFaceModal?.onRegister}
+      />
+
       {/* HEADER */}
       <Header appUser={appUser} todayCount={todayCount} />
 
@@ -1307,6 +1697,9 @@ export default function App() {
             students={students}
             setView={setView}
             handleDashboardStartAttendance={handleDashboardStartAttendance}
+            promoteYear={promoteYear}
+            setPromoteYear={setPromoteYear}
+            handlePromoteYears={handlePromoteYears}
           />
         )}
 
