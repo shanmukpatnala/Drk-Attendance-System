@@ -1,9 +1,10 @@
 import { collection, getDocs, doc, getDoc, setDoc, addDoc, serverTimestamp } from '../utils/firebase';
 import { appId } from './constants';
+import { formatTime, getTodayDateId } from '../utils/helpers';
 
 export const getTodayMarkedSet = async ({ db }) => {
   try {
-    const todayId = new Date().toISOString().split('T')[0];
+    const todayId = getTodayDateId();
     const logsCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', todayId, 'logs');
     const snap = await getDocs(logsCol);
     const set = new Set();
@@ -17,7 +18,7 @@ export const getTodayMarkedSet = async ({ db }) => {
 
 export const logAttendance = async ({ db, student, status, setTodayCount }) => {
   try {
-    const dateId = new Date().toISOString().split('T')[0];
+    const dateId = getTodayDateId();
     const studentDocId = (student.studentId || student).toString();
 
     const dailyRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs', studentDocId);
@@ -31,7 +32,7 @@ export const logAttendance = async ({ db, student, status, setTodayCount }) => {
         branch: student.branch || '',
         year: student.year || '',
         status,
-        timeIn: new Date().toLocaleTimeString(),
+        timeIn: formatTime(),
         timestamp: serverTimestamp()
       });
       isNewForToday = true;
@@ -48,7 +49,7 @@ export const logAttendance = async ({ db, student, status, setTodayCount }) => {
         year: student.year || '',
         timestamp: serverTimestamp(),
         date: dateId,
-        timeIn: new Date().toLocaleTimeString()
+        timeIn: formatTime()
       }
     );
 

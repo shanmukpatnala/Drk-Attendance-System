@@ -1,5 +1,5 @@
-import React from 'react';
-import { PieChart, Download } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { PieChart, Download, X } from 'lucide-react';
 
 const REPORT_YEAR_OPTIONS = [
   { value: 'All', label: 'All' },
@@ -22,6 +22,13 @@ export function ReportsScreen({
   handleDownloadReport,
   loading,
 }) {
+  const [selectedStudent, setSelectedStudent] = useState(null);
+
+  const reportCounts = useMemo(() => ({
+    present: (reportData || []).filter(r => r.status === 'Present').length,
+    absent: (reportData || []).filter(r => r.status === 'Absent').length
+  }), [reportData]);
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-4 rounded-xl shadow border border-slate-200">
@@ -48,7 +55,9 @@ export function ReportsScreen({
           </div>
 
           <div className="sm:col-span-2 flex gap-2">
-            <button onClick={handleGenerateReport} className="w-full bg-blue-600 text-white py-2 rounded font-bold">Generate</button>
+            <button onClick={handleGenerateReport} disabled={loading} className="w-full bg-blue-600 text-white py-2 rounded font-bold disabled:opacity-60">
+              {loading ? 'Generating...' : 'Generate'}
+            </button>
           </div>
         </div>
       </div>
@@ -61,8 +70,8 @@ export function ReportsScreen({
               <div className="text-xs text-slate-500">{reportBranch}-{reportYear} · {reportDate}</div>
             </div>
             <div className="flex gap-2">
-              <div className="p-2 bg-green-50 rounded"><div className="font-bold text-green-700">{reportData.filter(r => r.status === 'Present').length}</div><div className="text-xs">Present</div></div>
-              <div className="p-2 bg-red-50 rounded"><div className="font-bold text-red-700">{reportData.filter(r => r.status === 'Absent').length}</div><div className="text-xs">Absent</div></div>
+              <div className="p-2 bg-green-50 rounded"><div className="font-bold text-green-700">{reportCounts.present}</div><div className="text-xs">Present</div></div>
+              <div className="p-2 bg-red-50 rounded"><div className="font-bold text-red-700">{reportCounts.absent}</div><div className="text-xs">Absent</div></div>
             </div>
           </div>
 
@@ -73,7 +82,21 @@ export function ReportsScreen({
               </thead>
               <tbody>
                 {reportData.map(student => (
-                  <tr key={student.id || student.studentId} className="border-b"><td className="p-2 font-mono">{student.studentId}</td><td className="p-2 font-bold">{student.name}</td><td className="p-2">{student.timeIn || '-'}</td><td className="p-2"><span className={`px-2 py-1 rounded ${student.status === 'Present' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{student.status}</span></td><td className="p-2">{student.branch}</td><td className="p-2">{student.year}</td></tr>
+                  <tr
+                    key={student.id || student.studentId}
+                    className="border-b cursor-pointer hover:bg-slate-50"
+                    onClick={() => setSelectedStudent(student)}
+                  >
+                    <td className="p-2 font-mono">{student.studentId}</td>
+                    <td className="p-2 font-bold">
+                      <div>{student.name}</div>
+                      <div className="text-xs font-normal text-blue-700">Click to view photo</div>
+                    </td>
+                    <td className="p-2">{student.timeIn || '-'}</td>
+                    <td className="p-2"><span className={`px-2 py-1 rounded ${student.status === 'Present' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{student.status}</span></td>
+                    <td className="p-2">{student.branch}</td>
+                    <td className="p-2">{student.year}</td>
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -81,6 +104,48 @@ export function ReportsScreen({
 
           <div className="mt-4 flex gap-3">
             <button onClick={handleDownloadReport} className="bg-blue-600 text-white px-4 py-2 rounded font-bold"><Download className="w-4 h-4 inline mr-2" /> Download CSV</button>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Student photo is shown only in the popup view. CSV download contains text fields only.</p>
+        </div>
+      )}
+
+      {selectedStudent && (
+        <div className="fixed inset-0 z-[170] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start gap-3 border-b p-4">
+              <div>
+                <h3 className="text-lg font-bold">{selectedStudent.name}</h3>
+                <p className="text-sm text-slate-500">{selectedStudent.studentId} · {selectedStudent.branch} · {selectedStudent.year}</p>
+              </div>
+              <button onClick={() => setSelectedStudent(null)} className="ml-auto text-slate-500">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="grid gap-4 p-4 sm:grid-cols-[220px_1fr]">
+              <div className="overflow-hidden rounded-xl border bg-slate-50">
+                {selectedStudent.photo ? (
+                  <img src={selectedStudent.photo} alt={selectedStudent.name} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-64 items-center justify-center px-4 text-center text-sm text-slate-500">
+                    No registered photo available for this student.
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <div className="rounded-xl bg-slate-50 p-3">
+                  <div className="text-xs font-bold uppercase text-slate-500">Recognition Details</div>
+                  <div className="mt-2 text-sm text-slate-700">Attendance Date: <span className="font-semibold">{selectedStudent.date || reportDate}</span></div>
+                  <div className="mt-1 text-sm text-slate-700">Recognized Status: <span className="font-semibold">{selectedStudent.status}</span></div>
+                  <div className="mt-1 text-sm text-slate-700">Time In: <span className="font-semibold">{selectedStudent.timeIn || 'N/A'}</span></div>
+                </div>
+
+                <div className="rounded-xl bg-blue-50 p-3 text-sm text-slate-700">
+                  The system recognizes this student by comparing the live attendance face scan with the registered student photo and saved face descriptor.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

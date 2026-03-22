@@ -77,7 +77,7 @@ export function UnidentifiedFaceModal({ isOpen, onClose, onEndSession, facePhoto
       onClose();
     } catch (error) {
       console.error('Registration error:', error);
-      setErrors({ submit: 'Failed to register: ' + error.message });
+      setErrors({ submit: error.message || 'Failed to register this person.' });
     } finally {
       setLoading(false);
     }
@@ -198,7 +198,6 @@ export function UnidentifiedFaceModal({ isOpen, onClose, onEndSession, facePhoto
                       <option value="2nd">2nd Year</option>
                       <option value="3rd">3rd Year</option>
                       <option value="4th">4th Year</option>
-                      <option value="Passed Out">Passed Out</option>
                     </select>
                   </div>
 

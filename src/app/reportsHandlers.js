@@ -40,9 +40,18 @@ export const handleGenerateReport = async ({ db, students, reportBranch, reportY
 
 export const handleDownloadReport = ({ reportData, reportBranch, reportYear, reportDate }) => {
   if (!reportData) return;
+  const escapeCsvCell = (value) => `"${String(value ?? '').replace(/"/g, '""')}"`;
   const header = "Date,Roll No,Name,Branch,Year,Time In,Status\n";
   const csvLines = reportData.map(r =>
-    `${r.date},${r.studentId || ''},${(r.name || '').replace(/,/g, ' ')},${r.branch || ''},${r.year || ''},${r.timeIn || 'N/A'},${r.status}`
+    [
+      r.date,
+      r.studentId || '',
+      r.name || '',
+      r.branch || '',
+      r.year || '',
+      r.timeIn || 'N/A',
+      r.status || ''
+    ].map(escapeCsvCell).join(',')
   ).join("\n");
   const csvContent = "data:text/csv;charset=utf-8," + header + csvLines;
   const encodedUri = encodeURI(csvContent);

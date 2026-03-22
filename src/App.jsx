@@ -5,7 +5,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 
 // Firebase & utilities
 import { auth, signInAnonymously, onAuthStateChanged, serverTimestamp, collection, addDoc, db, getDocs, updateDoc, doc, getDoc, query, where, onSnapshot, orderBy, setDoc } from './utils/firebase';
-import { hashPassword, safeData, getTodayDateId, compressImage } from './utils/helpers';
+import { hashPassword, safeData, getTodayDateId, compressImage, formatTime } from './utils/helpers';
 import { appId, FACE_API_SCRIPT, MODEL_URL, EMAILJS_SERVICE_ID, EMAILJS_REPORT_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, SHOW_EMAIL_BUTTON, appConfig } from './app/constants';
 import { performLogin as performLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
 
@@ -19,16 +19,18 @@ import { SendReportModal, HistoryDetailModal, IDCardModal, OverwriteModal, Unide
 import { Header, BottomNav, Message } from './components';
 
 const CAMERA_CONSTRAINTS = {
-  width: { ideal: 640 },
-  height: { ideal: 360 },
+  width: { ideal: 480 },
+  height: { ideal: 270 },
   frameRate: { ideal: 24, max: 30 }
 };
 
 const ATTENDANCE_MATCH_THRESHOLD = 0.6;
 const ATTENDANCE_DETECTOR_OPTIONS = {
-  inputSize: 160,
-  scoreThreshold: 0.25
+  inputSize: 128,
+  scoreThreshold: 0.3
 };
+
+const ATTENDANCE_PROCESSING_WIDTH = 320;
 
 const UNKNOWN_FACE_SIGNATURE_PRECISION = 1;
 const UNKNOWN_FACE_SKIP_COOLDOWN_MS = 5000;
@@ -85,9 +87,9 @@ export default function App() {
   const [continuousScanActive, setContinuousScanActive] = useState(false);
 
   // Reports
-  const [reportDate, setReportDate] = useState(new Date().toISOString().split('T')[0]);
-  const [reportBranch, setReportBranch] = useState('CSE');
-  const [reportYear, setReportYear] = useState('1st');
+  const [reportDate, setReportDate] = useState(getTodayDateId());
+  const [reportBranch, setReportBranch] = useState('All');
+  const [reportYear, setReportYear] = useState('All');
   const [reportData, setReportData] = useState(null);
   const [promoteYear, setPromoteYear] = useState('All');
 
@@ -110,6 +112,8 @@ export default function App() {
   // Camera
   const videoRef = useRef(null);
   const imgRef = useRef(null);
+  const scanCanvasRef = useRef(null);
+  const scanSourceMetaRef = useRef(null);
   const [cameraFacing, setCameraFacing] = useState('user'); // 'user' | 'environment'
 
   // Profile edit
@@ -139,7 +143,7 @@ export default function App() {
   const [historyDetail, setHistoryDetail] = useState([]); // list of student logs for selected date
   const [showHistoryDetailModal, setShowHistoryDetailModal] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyDate, setHistoryDate] = useState(new Date().toISOString().split('T')[0]); // selected date in history view
+  const [historyDate, setHistoryDate] = useState(getTodayDateId()); // selected date in history view
 
   // history filters
   const [historyBranch, setHistoryBranch] = useState('');
@@ -267,6 +271,14 @@ export default function App() {
   useEffect(() => {
     unidentifiedFaceModalRef.current = unidentifiedFaceModal;
   }, [unidentifiedFaceModal]);
+
+  useEffect(() => {
+    if (!appUser) return;
+    setProfileEmail(appUser.email || '');
+    setProfilePhone(appUser.phone || '');
+    setProfileDept(appUser.department || '');
+    setProfilePhotoPreview(appUser.photo || null);
+  }, [appUser]);
 
   // process reset token from URL
   useEffect(() => {
@@ -452,12 +464,22 @@ export default function App() {
     const sourceHeight = video.videoHeight;
     if (!sourceWidth || !sourceHeight) return null;
 
-    const padX = box.width * 0.35;
-    const padY = box.height * 0.45;
-    const sx = Math.max(0, Math.floor(box.x - padX));
-    const sy = Math.max(0, Math.floor(box.y - padY));
-    const sw = Math.min(sourceWidth - sx, Math.ceil(box.width + padX * 2));
-    const sh = Math.min(sourceHeight - sy, Math.ceil(box.height + padY * 2));
+    const meta = scanSourceMetaRef.current;
+    const scaleX = meta?.processedWidth ? sourceWidth / meta.processedWidth : 1;
+    const scaleY = meta?.processedHeight ? sourceHeight / meta.processedHeight : 1;
+    const mappedBox = {
+      x: box.x * scaleX,
+      y: box.y * scaleY,
+      width: box.width * scaleX,
+      height: box.height * scaleY
+    };
+
+    const padX = mappedBox.width * 0.35;
+    const padY = mappedBox.height * 0.45;
+    const sx = Math.max(0, Math.floor(mappedBox.x - padX));
+    const sy = Math.max(0, Math.floor(mappedBox.y - padY));
+    const sw = Math.min(sourceWidth - sx, Math.ceil(mappedBox.width + padX * 2));
+    const sh = Math.min(sourceHeight - sy, Math.ceil(mappedBox.height + padY * 2));
 
     if (sw <= 0 || sh <= 0) return null;
 
@@ -503,6 +525,9 @@ export default function App() {
 
   const handleSkipUnknownFace = () => {
     unknownFaceSkipUntilRef.current = Date.now() + UNKNOWN_FACE_SKIP_COOLDOWN_MS;
+    if (unidentifiedFaceModalRef.current?.signature) {
+      promptedUnidentifiedRef.current.delete(unidentifiedFaceModalRef.current.signature);
+    }
     closeUnidentifiedFaceModal();
   };
 
@@ -592,11 +617,9 @@ export default function App() {
         s => s.studentId?.toLowerCase() === regId.toLowerCase()
       );
       if (existingStudent && !dataDocId) {
-        setOverwriteModal({
-          docId: existingStudent.id,
-          name: existingStudent.name,
-          id: existingStudent.studentId,
-          newData: studentData
+        setStatusMsg({
+          type: 'error',
+          text: `Roll number ${existingStudent.studentId} is already registered for ${existingStudent.name}. Duplicate roll numbers are not allowed.`
         });
         setLoading(false);
         return;
@@ -615,7 +638,7 @@ export default function App() {
   // -------------------------------------------------------------------
   const getTodayMarkedSet = async () => {
     try {
-      const todayId = new Date().toISOString().split('T')[0];
+      const todayId = getTodayDateId();
       const logsCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', todayId, 'logs');
       const snap = await getDocs(logsCol);
       const set = new Set();
@@ -629,7 +652,7 @@ export default function App() {
 
   const logAttendance = async (student, status) => {
     try {
-      const dateId = new Date().toISOString().split('T')[0];
+      const dateId = getTodayDateId();
       const studentDocId = (student.studentId || student).toString();
 
       // attendance_daily entry
@@ -644,7 +667,7 @@ export default function App() {
           branch: student.branch || '',
           year: student.year || '',
           status,
-          timeIn: new Date().toLocaleTimeString(),
+          timeIn: formatTime(),
           timestamp: serverTimestamp()
         });
         isNewForToday = true;
@@ -664,7 +687,7 @@ export default function App() {
           year: student.year || '',
           timestamp: serverTimestamp(),
           date: dateId,
-          timeIn: new Date().toLocaleTimeString()
+          timeIn: formatTime()
         }
       );
 
@@ -692,6 +715,40 @@ export default function App() {
       runScanner();
     }, delay);
   };
+
+  const getAttendanceScanSource = () => {
+    const video = videoRef.current;
+    if (!video) return null;
+
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+    if (!sourceWidth || !sourceHeight) return video;
+
+    if (!scanCanvasRef.current) {
+      scanCanvasRef.current = document.createElement('canvas');
+    }
+
+    const canvas = scanCanvasRef.current;
+    const scale = Math.min(1, ATTENDANCE_PROCESSING_WIDTH / sourceWidth);
+    const width = Math.max(160, Math.round(sourceWidth * scale));
+    const height = Math.max(120, Math.round(sourceHeight * scale));
+
+    if (canvas.width !== width) canvas.width = width;
+    if (canvas.height !== height) canvas.height = height;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return video;
+
+    ctx.drawImage(video, 0, 0, width, height);
+    scanSourceMetaRef.current = {
+      processedWidth: width,
+      processedHeight: height,
+      sourceWidth,
+      sourceHeight
+    };
+    return canvas;
+  };
+
   const runScanner = async () => {
     if (scanInProgressRef.current) return;
     if (view !== 'attendance' || attStep !== 'camera' || !modelsLoaded) return;
@@ -719,25 +776,34 @@ export default function App() {
         const labeledDescriptors = students
           .filter(s => Array.isArray(s.descriptor) && s.descriptor.length)
           .map(s => new faceapi.LabeledFaceDescriptors(s.studentId, [new Float32Array(s.descriptor)]));
-
-        if (!labeledDescriptors.length) {
-          scheduleNextScan(1000);
-          return;
+        if (labeledDescriptors.length) {
+          faceMatcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, ATTENDANCE_MATCH_THRESHOLD);
         }
+      }
 
-        faceMatcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, ATTENDANCE_MATCH_THRESHOLD);
+      const scanSource = getAttendanceScanSource();
+      if (!scanSource) {
+        scheduleNextScan(150);
+        return;
       }
 
       const detections = await faceapi
         .detectAllFaces(
-          videoRef.current,
+          scanSource,
           new faceapi.TinyFaceDetectorOptions(ATTENDANCE_DETECTOR_OPTIONS)
         )
         .withFaceLandmarks()
         .withFaceDescriptors();
 
       if (!detections?.length) {
-        scheduleNextScan(250);
+        scheduleNextScan(120);
+        return;
+      }
+
+      if (!faceMatcherRef.current) {
+        const prompted = promptUnknownFaceRegistration(detections[0]);
+        if (prompted) return;
+        scheduleNextScan(150);
         return;
       }
 
@@ -784,10 +850,10 @@ export default function App() {
         return;
       }
 
-      scheduleNextScan(recognizedStudents.length ? 120 : 180);
+      scheduleNextScan(recognizedStudents.length ? 80 : 120);
     } catch (err) {
       console.error('scan error', err);
-      scheduleNextScan(400);
+      scheduleNextScan(180);
     } finally {
       scanInProgressRef.current = false;
     }
@@ -812,6 +878,7 @@ export default function App() {
       setContinuousScanActive(false);
       faceMatcherRef.current = null;
       studentMapRef.current = null;
+      scanSourceMetaRef.current = null;
       scanInProgressRef.current = false;
       if (scanTimeoutRef.current) {
         clearTimeout(scanTimeoutRef.current);
@@ -977,6 +1044,7 @@ export default function App() {
     stopVideo();
     promptedUnidentifiedRef.current.clear(); // Reset tracked unidentified faces
     unknownFaceSkipUntilRef.current = 0;
+    scanSourceMetaRef.current = null;
     setUnidentifiedFaceModal(null);
     if (scanTimeoutRef.current) {
       clearTimeout(scanTimeoutRef.current);
@@ -989,6 +1057,14 @@ export default function App() {
   const handleRegisterUnidentifiedFace = async (studentData) => {
     try {
       setStatusMsg({ type: 'info', text: 'Registering unidentified person...' });
+
+      const normalizedStudentId = (studentData.studentId || '').trim().toUpperCase();
+      const existingStudentById = students.find(
+        s => (s.studentId || '').trim().toUpperCase() === normalizedStudentId
+      );
+      if (existingStudentById) {
+        throw new Error(`Roll number ${normalizedStudentId} is already registered for ${existingStudentById.name}. Duplicate roll numbers are not allowed.`);
+      }
 
       // Extract face descriptor from the photo
       const faceapi = window.faceapi;
@@ -1008,9 +1084,28 @@ export default function App() {
         throw new Error('No face detected in the captured photo');
       }
 
+      const labeledDescriptors = students
+        .filter(s => Array.isArray(s.descriptor) && s.descriptor.length && s.studentId)
+        .map(
+          s => new faceapi.LabeledFaceDescriptors(
+            s.studentId,
+            [new Float32Array(s.descriptor)]
+          )
+        );
+
+      if (labeledDescriptors.length > 0) {
+        const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.35);
+        const best = matcher.findBestMatch(detections.descriptor);
+        if (best.label !== 'unknown' && best.distance < 0.5) {
+          const existingFaceStudent = students.find(s => s.studentId === best.label);
+          throw new Error(`This face is already registered as ${existingFaceStudent?.name || ''} (${existingFaceStudent?.studentId || best.label}). One face cannot be registered for two students.`);
+        }
+      }
+
       // Prepare registration data
       const regData = {
         ...studentData,
+        studentId: normalizedStudentId,
         descriptor: Array.from(detections.descriptor),
         totalAttendance: 0,
         lastAttendance: null
@@ -1332,7 +1427,7 @@ export default function App() {
   // -------------------------------------------------------------------
   const fetchTodayCount = async () => {
     try {
-      const dateId = new Date().toISOString().split('T')[0];
+      const dateId = getTodayDateId();
       const logsCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs');
       const snap = await getDocs(logsCol);
       setTodayCount(snap.size || 0);

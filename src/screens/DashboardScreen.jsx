@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { formatIndiaDate, getGreetingByIndiaTime } from '../utils/helpers';
 
 const PROMOTION_YEAR_OPTIONS = ['All', '1st', '2nd', '3rd', '4th'];
 
@@ -12,17 +13,33 @@ export function DashboardScreen({
   handlePromoteYears
 }) {
   const isAdmin = (appUser?.role || '').toLowerCase() === 'admin';
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setNow(new Date());
+    }, 60000);
+
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const greeting = getGreetingByIndiaTime(now);
+  const todayLabel = formatIndiaDate(now, {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
 
   return (
     <div className="space-y-6">
       <div className="bg-gradient-to-r from-red-800 to-red-900 rounded-2xl p-4 text-white shadow-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-lg font-bold">Good Evening,</h2>
+            <h2 className="text-lg font-bold">{greeting},</h2>
             <h3 className="text-2xl font-extrabold">{appUser?.name}</h3>
           </div>
           <div className="text-sm bg-white/10 px-3 py-2 rounded-lg">
-            <div className="font-bold text-right">{new Date().toLocaleDateString()}</div>
+            <div className="font-bold text-right">{todayLabel}</div>
           </div>
         </div>
 

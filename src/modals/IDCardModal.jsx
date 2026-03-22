@@ -34,19 +34,18 @@ export function IDCardModal({ idCardData, onClose }) {
               </div>
             </div>
 
-            {/* Main Content: Photo + Details on Left, QR on Right */}
-            <div className="flex gap-3 mt-4">
-              {/* Left Section: Photo + Details */}
-              <div className="flex-1 flex-col items-center">
-                {/* Photo - Fixed Size */}
-                {idCardData.photo && (
-                  <div className="mb-3 mx-auto overflow-hidden rounded border border-slate-300" style={{ height: '170px', width: '150px' }}>
-                    <img src={idCardData.photo} alt="Photo" className="w-full h-full object-cover" />
+            <div className="mt-4">
+              {idCardData.photo && (
+                <div className="mb-4 flex justify-center">
+                  <div className="overflow-hidden rounded border border-slate-300" style={{ height: '170px', width: '150px' }}>
+                    <img src={idCardData.photo} alt="Photo" className="w-full h-full object-cover object-center" />
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Student Details */}
-                <div className="space-y-1 text-xs">
+              <div className="flex items-end gap-3">
+                <div className="flex-1">
+                  <div className="w-full space-y-1 text-xs">
                   <div>
                     <div className="font-semibold text-slate-600">Name</div>
                     <div className="font-bold text-slate-800 text-sm">{idCardData.name || 'N/A'}</div>
@@ -74,14 +73,14 @@ export function IDCardModal({ idCardData, onClose }) {
                     <div className="text-slate-800">{idCardData.phone || 'N/A'}</div>
                   </div>
                 </div>
-              </div>
-
-              {/* Right Section: QR Code (Small, Bottom Right) */}
-              <div className="flex flex-col items-center justify-end">
-                <div className="bg-white p-1 rounded border border-slate-300">
-                  <QRCode value={idCardData.studentId || 'ID'} size={50} level="H" includeMargin={false} />
                 </div>
-                <div className="text-xs text-slate-600 mt-1">QR ID</div>
+
+                <div className="flex flex-col items-center justify-end">
+                  <div className="bg-white p-1 rounded border border-slate-300">
+                    <QRCode value={idCardData.studentId || 'ID'} size={50} level="H" includeMargin={false} />
+                  </div>
+                  <div className="text-xs text-slate-600 mt-1">QR ID</div>
+                </div>
               </div>
             </div>
           </div>
