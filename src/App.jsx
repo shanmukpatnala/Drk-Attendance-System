@@ -433,18 +433,16 @@ export default function App() {
   };
 
   const buildStudentDocId = (data) => {
-    const normalizedName = (data?.name || 'student')
-      .trim()
-      .replace(/[^A-Za-z0-9]+/g, '_')
-      .replace(/^_+|_+$/g, '')
-      .toUpperCase();
-
     const normalizedStudentId = (data?.studentId || '')
       .trim()
       .replace(/[^A-Za-z0-9]+/g, '')
       .toUpperCase();
 
-    return [normalizedName || 'STUDENT', normalizedStudentId].filter(Boolean).join('_');
+    if (!normalizedStudentId) {
+      throw new Error('Student roll number is required');
+    }
+
+    return normalizedStudentId;
   };
 
   const performRegistration = async (data, docId = null) => {
