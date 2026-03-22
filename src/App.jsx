@@ -650,7 +650,7 @@ export default function App() {
     }
   };
 
-  const logAttendance = async (student, status) => {
+  const logAttendance = async (student, status, facePhoto = '') => {
     try {
       const dateId = getTodayDateId();
       const studentDocId = (student.studentId || student).toString();
@@ -668,7 +668,8 @@ export default function App() {
           year: student.year || '',
           status,
           timeIn: formatTime(),
-          timestamp: serverTimestamp()
+          timestamp: serverTimestamp(),
+          facePhoto: facePhoto || ''
         });
         isNewForToday = true;
       } else {
@@ -687,7 +688,8 @@ export default function App() {
           year: student.year || '',
           timestamp: serverTimestamp(),
           date: dateId,
-          timeIn: formatTime()
+          timeIn: formatTime(),
+          facePhoto: facePhoto || ''
         }
       );
 
@@ -825,19 +827,20 @@ export default function App() {
         const st = studentMapRef.current.get(sid);
         if (!st || st.year === 'Passed Out') continue;
 
+        const facePhoto = captureFaceFromDetection(det);
         localMarkedRef.current.add(sid);
-        recognizedStudents.push(st);
+        recognizedStudents.push({ student: st, facePhoto });
       }
 
       if (recognizedStudents.length) {
         setMarkedToday(prev => {
           const next = new Set(prev);
-          recognizedStudents.forEach(student => next.add(student.studentId));
+          recognizedStudents.forEach(({ student }) => next.add(student.studentId));
           return next;
         });
 
-        recognizedStudents.forEach(student => {
-          logAttendance(student, 'Present');
+        recognizedStudents.forEach(({ student, facePhoto }) => {
+          logAttendance(student, 'Present', facePhoto);
         });
 
         setStatusMsg({
@@ -1157,7 +1160,7 @@ export default function App() {
         const presentLog = todayLog && todayLog.status && todayLog.status.includes('Present') ? todayLog : null;
         const timeIn = presentLog ? (presentLog.timeIn || 'N/A') : 'N/A';
         const status = presentLog ? 'Present' : 'Absent';
-        return { ...st, status, timeIn, date: dateId };
+        return { ...st, photo: presentLog ? (presentLog.facePhoto || '') : '', status, timeIn, date: dateId };
       });
 
       setReportData(report);

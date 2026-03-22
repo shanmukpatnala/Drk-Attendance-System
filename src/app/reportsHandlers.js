@@ -27,7 +27,7 @@ export const handleGenerateReport = async ({ db, students, reportBranch, reportY
       const presentLog = todayLog && todayLog.status && todayLog.status.includes('Present') ? todayLog : null;
       const timeIn = presentLog ? (presentLog.timeIn || 'N/A') : 'N/A';
       const status = presentLog ? 'Present' : 'Absent';
-      return { ...st, status, timeIn, date: dateId };
+      return { ...st, photo: presentLog ? (presentLog.facePhoto || '') : '', status, timeIn, date: dateId };
     });
 
     setReportData(report);
