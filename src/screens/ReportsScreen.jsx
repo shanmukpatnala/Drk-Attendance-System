@@ -1,6 +1,15 @@
 import React from 'react';
 import { PieChart, Download } from 'lucide-react';
 
+const REPORT_YEAR_OPTIONS = [
+  { value: 'All', label: 'All' },
+  { value: '1st', label: '1st Year' },
+  { value: '2nd', label: '2nd Year' },
+  { value: '3rd', label: '3rd Year' },
+  { value: '4th', label: '4th Year' },
+  { value: 'Passed Out', label: 'Passout Batch' }
+];
+
 export function ReportsScreen({
   reportDate,
   setReportDate,
@@ -32,8 +41,9 @@ export function ReportsScreen({
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Year</label>
             <select className="w-full p-2 border rounded" value={reportYear} onChange={e => setReportYear(e.target.value)}>
-              <option value="All">All</option>
-              <option>1st</option><option>2nd</option><option>3rd</option><option>4th</option>
+              {REPORT_YEAR_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
           </div>
 

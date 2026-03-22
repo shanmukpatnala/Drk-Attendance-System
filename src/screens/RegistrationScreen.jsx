@@ -111,7 +111,7 @@ export function RegistrationScreen({
               <option>CSE</option><option>CSM</option><option>CSD</option><option>CSC</option><option>ECE</option><option>EEE</option><option>MECH</option><option>CIVIL</option>
             </select>
             <select className="w-full p-3 border rounded-lg" value={regYear} onChange={e => setRegYear(e.target.value)} disabled={regStep === 'camera'}>
-              <option>1st</option><option>2nd</option><option>3rd</option><option>4th</option>
+              <option>1st</option><option>2nd</option><option>3rd</option><option>4th</option><option>Passed Out</option>
             </select>
           </div>
           <input type="tel" maxLength={10} className="w-full p-3 border rounded-lg" value={regPhone} onChange={e => setRegPhone(e.target.value.replace(/\D/g, ''))} placeholder="Phone Number" disabled={regStep === 'camera'} />

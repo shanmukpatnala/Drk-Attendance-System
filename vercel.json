@@ -2,6 +2,12 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ],
   "env": {
     "VITE_FIREBASE_API_KEY": "AIzaSyC7fsX00zywhuvCzR_h8xTzv7V47ffy578",
     "VITE_FIREBASE_AUTH_DOMAIN": "drk-attendance-app.firebaseapp.com",
@@ -9,10 +15,5 @@
     "VITE_FIREBASE_STORAGE_BUCKET": "drk-attendance-app.firebasestorage.app",
     "VITE_FIREBASE_MESSAGING_SENDER_ID": "652472229762",
     "VITE_FIREBASE_APP_ID": "1:652472229762:web:abe2cfa416c1ec6e0c799b"
-  },
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "nodejs18.x"
-    }
   }
 }

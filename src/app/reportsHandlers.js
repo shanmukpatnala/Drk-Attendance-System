@@ -5,8 +5,12 @@ import emailjs from '@emailjs/browser';
 export const handleGenerateReport = async ({ db, students, reportBranch, reportYear, reportDate, setReportData, setStatusMsg }) => {
   const branchFilter = reportBranch === 'All' ? null : reportBranch;
   const yearFilter = reportYear === 'All' ? null : reportYear;
+  const includePassedOut = reportYear === 'Passed Out';
   const classStudents = students.filter(
-    s => (branchFilter ? s.branch === branchFilter : true) && (yearFilter ? s.year === yearFilter : true)
+    s =>
+      (branchFilter ? s.branch === branchFilter : true) &&
+      (yearFilter ? s.year === yearFilter : s.year !== 'Passed Out') &&
+      (includePassedOut ? s.year === 'Passed Out' : true)
   );
   const dateId = reportDate;
   try {

@@ -1,10 +1,8 @@
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  base: "/Drk-Attendance-System/",
+  base: '/',
   build: {
-    outDir: 'assets',
-    assetsDir: '',
-    emptyOutDir: true,
-  },
+    outDir: 'dist'
+  }
 })
