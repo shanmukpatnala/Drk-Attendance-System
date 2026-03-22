@@ -1,5 +1,6 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import { getTodayDateId } from '../utils/helpers';
 
 export function HistoryScreen({
   historyDate,
@@ -49,7 +50,7 @@ export function HistoryScreen({
 
           <div className="flex gap-2">
             <button onClick={() => fetchHistoryByDate(historyDate, historyBranch, historyYear)} className="px-4 py-2 bg-blue-600 text-white rounded">Show</button>
-            <button onClick={() => { setHistoryDate(new Date().toISOString().split('T')[0]); fetchHistoryByDate(new Date().toISOString().split('T')[0], historyBranch, historyYear); }} className="px-4 py-2 border rounded">Today</button>
+            <button onClick={() => { const today = getTodayDateId(); setHistoryDate(today); fetchHistoryByDate(today, historyBranch, historyYear); }} className="px-4 py-2 border rounded">Today</button>
           </div>
         </div>
 

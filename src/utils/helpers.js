@@ -1,5 +1,7 @@
 // Utility helper functions
 
+const INDIA_TIME_ZONE = 'Asia/Kolkata';
+
 // Compress image to JPEG base64
 export const compressImage = (sourceElement) => {
   const canvas = document.createElement('canvas');
@@ -57,10 +59,42 @@ export const hashPassword = async (password) => {
 
 // Get today's ISO date string
 export const getTodayDateId = () => {
-  return new Date().toISOString().split('T')[0];
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: INDIA_TIME_ZONE
+  }).format(new Date());
 };
 
 // Format time to HH:MM:SS
 export const formatTime = () => {
-  return new Date().toLocaleTimeString();
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: INDIA_TIME_ZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  }).format(new Date());
+};
+
+export const formatIndiaDate = (date = new Date(), options = {}) => {
+  return new Intl.DateTimeFormat('en-IN', {
+    timeZone: INDIA_TIME_ZONE,
+    ...options
+  }).format(date);
+};
+
+export const getIndiaHour = (date = new Date()) => {
+  const hour = new Intl.DateTimeFormat('en-US', {
+    timeZone: INDIA_TIME_ZONE,
+    hour: '2-digit',
+    hour12: false
+  }).format(date);
+  return Number.parseInt(hour, 10);
+};
+
+export const getGreetingByIndiaTime = (date = new Date()) => {
+  const hour = getIndiaHour(date);
+
+  if (hour < 12) return 'Good Morning';
+  if (hour < 17) return 'Good Afternoon';
+  return 'Good Evening';
 };
