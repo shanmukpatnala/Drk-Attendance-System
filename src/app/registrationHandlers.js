@@ -1,4 +1,4 @@
-import { collection, addDoc, setDoc, doc, serverTimestamp } from '../utils/firebase';
+import { setDoc, doc } from '../utils/firebase';
 import { appId } from './constants';
 
 export const handleFileChange = ({ e, setUploadedImgSrc }) => {
@@ -25,11 +25,20 @@ export const handleProceedToCamera = ({ regName, regId, regPhone, regEmail, setS
 export const performRegistration = async ({ data, docId, db, setStatusMsg, setRegName, setRegId, setRegPhone, setRegEmail, setUploadedImgSrc, setRegStep, setOverwriteModal, setLoading }) => {
   setLoading(true);
   try {
+    const normalizedDocId = (docId || data?.studentId || '')
+      .trim()
+      .replace(/[^A-Za-z0-9]+/g, '')
+      .toUpperCase();
+
+    if (!normalizedDocId) {
+      throw new Error('Student roll number is required');
+    }
+
     if (docId) {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', docId), data);
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', normalizedDocId), data);
       setStatusMsg({ type: 'success', text: `Updated profile for ${data.name}` });
     } else {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), data);
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', normalizedDocId), data);
       setStatusMsg({ type: 'success', text: `Student ${data.name} registered successfully` });
     }
     setRegName('');
