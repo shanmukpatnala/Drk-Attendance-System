@@ -23,6 +23,7 @@ export function ReportsScreen({
   loading,
 }) {
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const canViewPhoto = (student) => student?.status === 'Present' && Boolean(student?.photo);
 
   const reportCounts = useMemo(() => ({
     present: (reportData || []).filter(r => r.status === 'Present').length,
@@ -84,13 +85,19 @@ export function ReportsScreen({
                 {reportData.map(student => (
                   <tr
                     key={student.id || student.studentId}
-                    className="border-b cursor-pointer hover:bg-slate-50"
-                    onClick={() => setSelectedStudent(student)}
+                    className={`border-b ${canViewPhoto(student) ? 'cursor-pointer hover:bg-slate-50' : ''}`}
+                    onClick={() => {
+                      if (canViewPhoto(student)) setSelectedStudent(student);
+                    }}
                   >
                     <td className="p-2 font-mono">{student.studentId}</td>
                     <td className="p-2 font-bold">
                       <div>{student.name}</div>
-                      <div className="text-xs font-normal text-blue-700">Click to view photo</div>
+                      {canViewPhoto(student) ? (
+                        <div className="text-xs font-normal text-blue-700">Click to view photo</div>
+                      ) : (
+                        <div className="text-xs font-normal text-slate-400">Photo available only for present students</div>
+                      )}
                     </td>
                     <td className="p-2">{student.timeIn || '-'}</td>
                     <td className="p-2"><span className={`px-2 py-1 rounded ${student.status === 'Present' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{student.status}</span></td>
@@ -105,7 +112,7 @@ export function ReportsScreen({
           <div className="mt-4 flex gap-3">
             <button onClick={handleDownloadReport} className="bg-blue-600 text-white px-4 py-2 rounded font-bold"><Download className="w-4 h-4 inline mr-2" /> Download CSV</button>
           </div>
-          <p className="mt-2 text-xs text-slate-500">Student photo is shown only in the popup view. CSV download contains text fields only.</p>
+          <p className="mt-2 text-xs text-slate-500">Student photo is shown only for present students in the popup view. CSV download contains text fields only.</p>
         </div>
       )}
 
@@ -128,7 +135,7 @@ export function ReportsScreen({
                   <img src={selectedStudent.photo} alt={selectedStudent.name} className="h-full w-full object-cover" />
                 ) : (
                   <div className="flex h-64 items-center justify-center px-4 text-center text-sm text-slate-500">
-                    No registered photo available for this student.
+                    No live attendance photo available for this student.
                   </div>
                 )}
               </div>
@@ -142,7 +149,7 @@ export function ReportsScreen({
                 </div>
 
                 <div className="rounded-xl bg-blue-50 p-3 text-sm text-slate-700">
-                  The system recognizes this student by comparing the live attendance face scan with the registered student photo and saved face descriptor.
+                  This photo is the live face image captured during attendance for students marked present.
                 </div>
               </div>
             </div>
