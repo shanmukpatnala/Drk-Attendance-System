@@ -422,14 +422,41 @@ export default function App() {
     setRegStep('camera');
   };
 
+  const formatRegisteredStudentLabel = (student, fallbackId = '') => {
+    if (!student) return fallbackId ? `Student (${fallbackId})` : 'Student';
+
+    const name = student.name || 'Student';
+    const year = student.year ? ` - ${student.year} Year` : '';
+    const studentId = student.studentId || fallbackId;
+
+    return studentId ? `${name}${year} (${studentId})` : `${name}${year}`;
+  };
+
+  const buildStudentDocId = (data) => {
+    const normalizedName = (data?.name || 'student')
+      .trim()
+      .replace(/[^A-Za-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toUpperCase();
+
+    const normalizedStudentId = (data?.studentId || '')
+      .trim()
+      .replace(/[^A-Za-z0-9]+/g, '')
+      .toUpperCase();
+
+    return [normalizedName || 'STUDENT', normalizedStudentId].filter(Boolean).join('_');
+  };
+
   const performRegistration = async (data, docId = null) => {
     setLoading(true);
     try {
+      const targetDocId = docId || buildStudentDocId(data);
+
       if (docId) {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', docId), data);
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', targetDocId), data);
         setStatusMsg({ type: 'success', text: `Updated profile for ${data.name}` });
       } else {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'students'), data);
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', targetDocId), data);
         setStatusMsg({ type: 'success', text: `Student ${data.name} registered successfully` });
       }
       // reset form
@@ -592,7 +619,7 @@ export default function App() {
           const existingFaceStudent = students.find(s => s.studentId === best.label);
           setStatusMsg({
             type: 'error',
-            text: `This face is already registered as ${existingFaceStudent?.name || ''} (${existingFaceStudent?.studentId || best.label}). Duplicate faces are not allowed.`
+            text: `This face is already registered as ${formatRegisteredStudentLabel(existingFaceStudent, best.label)}. Duplicate faces are not allowed.`
           });
           setLoading(false);
           return;
@@ -619,7 +646,7 @@ export default function App() {
       if (existingStudent && !dataDocId) {
         setStatusMsg({
           type: 'error',
-          text: `Roll number ${existingStudent.studentId} is already registered for ${existingStudent.name}. Duplicate roll numbers are not allowed.`
+          text: `Roll number ${existingStudent.studentId} is already registered for ${formatRegisteredStudentLabel(existingStudent)}.`
         });
         setLoading(false);
         return;
@@ -1066,7 +1093,7 @@ export default function App() {
         s => (s.studentId || '').trim().toUpperCase() === normalizedStudentId
       );
       if (existingStudentById) {
-        throw new Error(`Roll number ${normalizedStudentId} is already registered for ${existingStudentById.name}. Duplicate roll numbers are not allowed.`);
+        throw new Error(`Roll number ${normalizedStudentId} is already registered for ${formatRegisteredStudentLabel(existingStudentById)}.`);
       }
 
       // Extract face descriptor from the photo
@@ -1101,7 +1128,7 @@ export default function App() {
         const best = matcher.findBestMatch(detections.descriptor);
         if (best.label !== 'unknown' && best.distance < 0.5) {
           const existingFaceStudent = students.find(s => s.studentId === best.label);
-          throw new Error(`This face is already registered as ${existingFaceStudent?.name || ''} (${existingFaceStudent?.studentId || best.label}). One face cannot be registered for two students.`);
+          throw new Error(`This face is already registered as ${formatRegisteredStudentLabel(existingFaceStudent, best.label)}. One face cannot be registered for two students.`);
         }
       }
 

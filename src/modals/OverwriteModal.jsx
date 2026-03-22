@@ -15,12 +15,13 @@ export function OverwriteModal({ showModal, data, onConfirm, onCancel }) {
 
         <div className="p-6">
           <p className="text-slate-700 mb-4">
-            Student <b>{data.name}</b> already exists in the database. Do you want to overwrite the existing record?
+            Student <b>{data.name}</b>{data.year ? ` (${data.year} Year)` : ''} already exists in the database. Do you want to overwrite the existing record?
           </p>
           <div className="bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-900 mb-4">
             <div className="font-semibold mb-1">Existing Record:</div>
             <div>ID: {data.id}</div>
             <div>Name: {data.name}</div>
+            <div>Year: {data.year || 'N/A'}</div>
           </div>
           <p className="text-xs text-slate-500 mb-4">
             Clicking "Overwrite" will replace the existing record with new data. This action cannot be undone.
