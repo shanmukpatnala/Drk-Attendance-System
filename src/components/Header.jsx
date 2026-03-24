@@ -1,10 +1,19 @@
 import React from 'react';
+import { Menu } from 'lucide-react';
 
-export function Header({ appUser, todayCount }) {
+export function Header({ appUser, todayCount, onMenuClick }) {
   return (
     <header className="sticky top-0 z-50 border-b-4 border-red-700 bg-red-900 px-3 py-3 text-white shadow-lg">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
         <div className="flex items-center space-x-3 min-w-0">
+          <button
+            type="button"
+            onClick={onMenuClick}
+            className="inline-flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 transition hover:bg-white/20"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
           <div className="flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-white/70 bg-white shadow-md ring-2 ring-red-800/30">
             <img
               src="/logos/header-logo.png"

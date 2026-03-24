@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertCircle, CheckCircle, RefreshCw, X, Eye, EyeOff, LayoutDashboard, User, PieChart, Users, AlertTriangle, Printer } from 'lucide-react';
+import { AlertCircle, CheckCircle, RefreshCw, X, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -13,7 +13,7 @@ import { performLogin as performLoginHandler, handleSendResetLink as handleSendR
 import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
 
 // Modal components
-import { SendReportModal, HistoryDetailModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal } from './modals';
+import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal } from './modals';
 
 // UI components
 import { Header, BottomNav, Message } from './components';
@@ -65,6 +65,7 @@ export default function App() {
 
   // Views
   const [view, setView] = useState('home'); // home | attendance | register | reports | database | profile | manage_users | history
+  const [isNavOpen, setIsNavOpen] = useState(false);
 
   // Students & logs
   const [students, setStudents] = useState([]);
@@ -140,14 +141,11 @@ export default function App() {
 
   // history: list of dates + counts
   const [historyList, setHistoryList] = useState([]); // { dateId, count }
-  const [historyDetail, setHistoryDetail] = useState([]); // list of student logs for selected date
-  const [showHistoryDetailModal, setShowHistoryDetailModal] = useState(false);
+  const [historyDetail, setHistoryDetail] = useState({ dateId: '', rows: [] });
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyDate, setHistoryDate] = useState(getTodayDateId()); // selected date in history view
-
-  // history filters
-  const [historyBranch, setHistoryBranch] = useState('');
-  const [historyYear, setHistoryYear] = useState('');
+  const [historyRollNo, setHistoryRollNo] = useState('');
+  const [historyStudentResult, setHistoryStudentResult] = useState(null);
 
   // Unidentified face modal
   const [unidentifiedFaceModal, setUnidentifiedFaceModal] = useState(null);
@@ -1018,8 +1016,10 @@ export default function App() {
   // attendance UI handlers
   const handleDashboardStartAttendance = () => {
     // Ensure camera starts immediately when entering attendance mode.
+    resetViewState('attendance');
     setAttStep('camera');
     setView('attendance');
+    setIsNavOpen(false);
     setStatusMsg({ type: 'info', text: 'Starting camera and scanning for faces...' });
     startVideo();
   };
@@ -1080,6 +1080,76 @@ export default function App() {
     }
     scanInProgressRef.current = false;
     setStatusMsg({ type: 'info', text: 'Attendance session ended.' });
+  };
+
+  const resetViewState = (nextView) => {
+    const today = getTodayDateId();
+
+    if (view === 'attendance' && nextView !== 'attendance') {
+      setAttStep('setup');
+      stopVideo();
+      promptedUnidentifiedRef.current.clear();
+      unknownFaceSkipUntilRef.current = 0;
+      scanSourceMetaRef.current = null;
+      setUnidentifiedFaceModal(null);
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
+      scanInProgressRef.current = false;
+      setContinuousScanActive(false);
+    }
+
+    setSearchQuery('');
+    setSearchResult(null);
+    setStudentHistory([]);
+    setIdCardData(null);
+
+    setReportDate(today);
+    setReportBranch('All');
+    setReportYear('All');
+    setReportData(null);
+
+    setHistoryDate(today);
+    setHistoryList([]);
+    setHistoryDetail({ dateId: '', rows: [] });
+    setHistoryLoading(false);
+    setHistoryRollNo('');
+    setHistoryStudentResult(null);
+
+    setRegStep('details');
+    setRegMode('live');
+    setRegName('');
+    setRegId('');
+    setRegBranch('CSE');
+    setRegYear('1st');
+    setRegPhone('');
+    setRegEmail('');
+    setUploadedImgSrc(null);
+    setOverwriteModal(null);
+
+    setProfileEditMode(false);
+    setProfileEmail(appUser?.email || '');
+    setProfilePhone(appUser?.phone || '');
+    setProfileDept(appUser?.department || '');
+    setProfilePhotoPreview(appUser?.photo || null);
+
+    setNewUserFirstName('');
+    setNewUserLastName('');
+    setNewUserUser('');
+    setNewUserEmail('');
+    setNewUserDept('CSE');
+    setNewUserDesignation('Faculty');
+    setNewUserPass('');
+    setNewUserConfirmPass('');
+
+    setStatusMsg(null);
+  };
+
+  const navigateToView = (nextView) => {
+    resetViewState(nextView);
+    setView(nextView);
+    setIsNavOpen(false);
   };
 
   const handleRegisterUnidentifiedFace = async (studentData) => {
@@ -1422,30 +1492,64 @@ export default function App() {
     setHistoryLoading(false);
   };
 
-  const fetchHistoryByDate = async (dateId, branch = '', year = '') => {
+  const fetchHistoryByDate = async (dateId) => {
     setHistoryLoading(true);
     try {
       const logsCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs');
       const snap = await getDocs(logsCol);
       let rows = snap.docs.map(d => ({ id: d.id, ...safeData(d.data()) }));
 
-      // apply branch/year filters client-side (if provided)
-      if (branch) {
-        const b = branch.toString().trim().toLowerCase();
-        rows = rows.filter(r => (r.branch || '').toString().trim().toLowerCase() === b);
-      }
-      if (year) {
-        const y = year.toString().trim().toLowerCase();
-        rows = rows.filter(r => (r.year || '').toString().trim().toLowerCase() === y);
-      }
-
       rows.sort((a, b) => (a.timeIn || '').localeCompare(b.timeIn || ''));
-      setHistoryDetail({ dateId, rows, branch, year });
-      setShowHistoryDetailModal(true);
+      setHistoryDetail({ dateId, rows });
     } catch (e) {
       console.error('fetchHistoryByDate error', e);
-      setHistoryDetail({ dateId, rows: [], branch, year });
-      setShowHistoryDetailModal(true);
+      setHistoryDetail({ dateId, rows: [] });
+    }
+    setHistoryLoading(false);
+  };
+
+  const handleHistoryStudentSearch = async () => {
+    const dateId = historyDate;
+    const normalizedRollNo = historyRollNo.trim().toUpperCase();
+
+    if (!dateId || !normalizedRollNo) {
+      setStatusMsg({ type: 'error', text: 'Select date and enter roll number' });
+      return;
+    }
+
+    setHistoryLoading(true);
+    try {
+      const student = students.find(
+        s => (s.studentId || '').trim().toUpperCase() === normalizedRollNo
+      );
+      const logRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs', normalizedRollNo);
+      const logSnap = await getDoc(logRef);
+
+      if (logSnap.exists()) {
+        const data = safeData(logSnap.data());
+        setHistoryStudentResult({
+          dateId,
+          studentId: normalizedRollNo,
+          name: data.name || student?.name || '',
+          status: data.status || 'Present',
+          timeIn: data.timeIn || '-',
+          photo: data.facePhoto || ''
+        });
+      } else {
+        setHistoryStudentResult({
+          dateId,
+          studentId: normalizedRollNo,
+          name: student?.name || '',
+          status: 'Absent',
+          timeIn: '-',
+          photo: ''
+        });
+      }
+      setStatusMsg(null);
+    } catch (error) {
+      console.error('handleHistoryStudentSearch error', error);
+      setHistoryStudentResult(null);
+      setStatusMsg({ type: 'error', text: 'Failed to check student history' });
     }
     setHistoryLoading(false);
   };
@@ -1791,12 +1895,11 @@ export default function App() {
 
   // ---------- LOGGED-IN VIEW ----------
   return (
-    <div className="app-shell min-h-screen bg-slate-50 pb-24">
+    <div className="app-shell min-h-screen bg-slate-50 pb-8">
       <Message statusMsg={statusMsg} setStatusMsg={setStatusMsg} />
       
       {/* MODALS */}
       <SendReportModal showModal={showSendResultModal} result={sendReportResult} onClose={() => setShowSendResultModal(false)} />
-      <HistoryDetailModal showModal={showHistoryDetailModal} detail={historyDetail} onClose={() => setShowHistoryDetailModal(false)} />
       <IDCardModal idCardData={idCardData} onClose={() => setIdCardData(null)} />
       <OverwriteModal showModal={overwriteModal !== null} data={overwriteModal} onConfirm={(d) => { setOverwriteModal(null); performRegistration(d.newData, d.docId); }} onCancel={() => setOverwriteModal(null)} />
 
@@ -1809,7 +1912,7 @@ export default function App() {
       />
 
       {/* HEADER */}
-      <Header appUser={appUser} todayCount={todayCount} />
+      <Header appUser={appUser} todayCount={todayCount} onMenuClick={() => setIsNavOpen(true)} />
 
       {/* MAIN */}
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
@@ -1818,7 +1921,7 @@ export default function App() {
           <DashboardScreen
             appUser={appUser}
             students={students}
-            setView={setView}
+            setView={navigateToView}
             handleDashboardStartAttendance={handleDashboardStartAttendance}
             promoteYear={promoteYear}
             setPromoteYear={setPromoteYear}
@@ -1901,14 +2004,15 @@ export default function App() {
           <HistoryScreen
             historyDate={historyDate}
             setHistoryDate={setHistoryDate}
-            historyBranch={historyBranch}
-            setHistoryBranch={setHistoryBranch}
-            historyYear={historyYear}
-            setHistoryYear={setHistoryYear}
             historyLoading={historyLoading}
             historyList={historyList}
+            historyDetail={historyDetail}
+            historyRollNo={historyRollNo}
+            setHistoryRollNo={setHistoryRollNo}
+            historyStudentResult={historyStudentResult}
             fetchHistoryByDate={fetchHistoryByDate}
-            setView={setView}
+            handleHistoryStudentSearch={handleHistoryStudentSearch}
+            setView={navigateToView}
             fetchHistoryList={fetchHistoryList}
           />
         )}
@@ -1930,7 +2034,7 @@ export default function App() {
             handleSaveProfile={handleSaveProfile}
             handleCancelProfileEdit={handleCancelProfileEdit}
             handleLogout={handleLogout}
-            setView={setView}
+            setView={navigateToView}
           />
         )}
 
@@ -1955,7 +2059,7 @@ export default function App() {
             setNewUserConfirmPass={setNewUserConfirmPass}
             loading={loading}
             handleCreateStaff={handleCreateStaff}
-            setView={setView}
+            setView={navigateToView}
           />
         )}
       </main>
@@ -2010,8 +2114,13 @@ export default function App() {
 
       {/* History detail modal (moved to separate component) */}
 
-      {/* BOTTOM NAV */}
-      <BottomNav view={view} setView={setView} />
+      <BottomNav
+        view={view}
+        setView={navigateToView}
+        isOpen={isNavOpen}
+        setIsOpen={setIsNavOpen}
+        isAdmin={(appUser?.role || '').toLowerCase() === 'admin'}
+      />
     </div>
   );
 }

@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { formatIndiaDate, getGreetingByIndiaTime } from '../utils/helpers';
 
 const PROMOTION_YEAR_OPTIONS = ['All', '1st', '2nd', '3rd', '4th'];
+const YEAR_DISPLAY_ORDER = ['1st', '2nd', '3rd', '4th', 'Passed Out'];
+const BRANCH_DISPLAY_ORDER = ['CSE', 'CSM', 'CSD', 'CSC', 'ECE', 'EEE', 'MECH', 'CIVIL'];
 
 export function DashboardScreen({
   appUser,
@@ -28,6 +30,31 @@ export function DashboardScreen({
     day: '2-digit',
     month: '2-digit',
     year: 'numeric'
+  });
+  const yearWiseStats = YEAR_DISPLAY_ORDER.map((year) => {
+    const yearStudents = students.filter(student => (student?.year || '').trim() === year);
+    const branchCounts = yearStudents.reduce((acc, student) => {
+      const branch = (student?.branch || '').trim().toUpperCase();
+      if (!branch) return acc;
+      acc[branch] = (acc[branch] || 0) + 1;
+      return acc;
+    }, {});
+
+    const branchOrder = [
+      ...BRANCH_DISPLAY_ORDER,
+      ...Object.keys(branchCounts)
+        .filter(branch => !BRANCH_DISPLAY_ORDER.includes(branch))
+        .sort()
+    ];
+
+    return {
+      year,
+      total: yearStudents.length,
+      branches: branchOrder.map(branch => ({
+        branch,
+        count: branchCounts[branch]
+      }))
+    };
   });
 
   return (
@@ -87,6 +114,46 @@ export function DashboardScreen({
           </div>
         )}
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Registered Students by Year</h3>
+            <p className="text-xs text-slate-500">Year-wise total with branch-wise student count</p>
+          </div>
+          <div className="rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
+            Total {students.length}
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {yearWiseStats.map(({ year, total, branches }) => (
+            <div key={year} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-base font-bold text-slate-900">{year === 'Passed Out' ? 'Passed Out' : `${year} Year`}</h4>
+                  <p className="text-xs text-slate-500">Registered students</p>
+                </div>
+                <div className="rounded-xl bg-white px-3 py-2 text-right shadow-sm">
+                  <div className="text-lg font-extrabold text-red-800">{total}</div>
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500">Total</div>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {branches.map(({ branch, count }) => (
+                  <div
+                    key={`${year}-${branch}`}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm"
+                  >
+                    <span className="font-semibold">{branch}</span>: {count || 0}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }
