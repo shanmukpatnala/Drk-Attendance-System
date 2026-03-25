@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { PieChart, Download, X } from 'lucide-react';
+import { ArrowLeft, PieChart, Download, X } from 'lucide-react';
 
 const REPORT_YEAR_OPTIONS = [
   { value: 'All', label: 'All' },
@@ -21,6 +21,7 @@ export function ReportsScreen({
   handleGenerateReport,
   handleDownloadReport,
   loading,
+  handleBack,
 }) {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const canViewPhoto = (student) => student?.status === 'Present' && Boolean(student?.photo);
@@ -32,6 +33,15 @@ export function ReportsScreen({
 
   return (
     <div className="space-y-6">
+      <button
+        type="button"
+        onClick={handleBack}
+        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-red-200 hover:text-red-700"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </button>
+
       <div className="bg-white p-4 rounded-xl shadow border border-slate-200">
         <h2 className="text-lg font-bold flex items-center"><PieChart className="w-5 h-5 mr-2 text-blue-700" /> Class Attendance Report</h2>
         <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 mt-3 items-end">

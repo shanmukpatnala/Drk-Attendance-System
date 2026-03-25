@@ -1,5 +1,5 @@
 import React from 'react';
-import { UserPlus, ImageIcon, ArrowRight } from 'lucide-react';
+import { UserPlus, ImageIcon, ArrowLeft, ArrowRight } from 'lucide-react';
 
 export function RegistrationScreen({
   regStep,
@@ -26,6 +26,9 @@ export function RegistrationScreen({
   handleCheckAndRegister,
   handleFileChange,
   toggleCameraFacing,
+  handleBack,
+  registrationEditStudent,
+  handleSaveStudentEdits,
 }) {
   const handleRegIdChange = (e) => {
     let value = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '');
@@ -51,6 +54,15 @@ export function RegistrationScreen({
   return (
     <div className="flex flex-col lg:flex-row gap-6 sm:gap-8">
       <div className="lg:w-1/2 space-y-4">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-red-200 hover:text-red-700"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+
         <div className="flex bg-slate-200 p-1 rounded-lg">
           <button
             onClick={() => setRegMode('live')}
@@ -100,11 +112,12 @@ export function RegistrationScreen({
 
       <div className="lg:w-1/2 bg-white p-5 rounded-xl shadow border border-slate-200">
         <h2 className="text-xl font-bold mb-4 flex items-center">
-          <UserPlus className="w-5 h-5 mr-2 text-red-700" /> New Registration
+          <UserPlus className="w-5 h-5 mr-2 text-red-700" />
+          {registrationEditStudent ? 'Edit Student Details' : 'New Registration'}
         </h2>
 
         <div className="space-y-3">
-          <input type="text" maxLength={10} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={handleRegIdChange} placeholder="22N71A6655" disabled={regStep === 'camera'} />
+          <input type="text" maxLength={10} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={handleRegIdChange} placeholder="22N71A6655" disabled={regStep === 'camera' || Boolean(registrationEditStudent)} />
           <input type="text" className="w-full p-3 border rounded-lg" value={regName} onChange={e => setRegName(e.target.value.toUpperCase())} placeholder="Full Name" disabled={regStep === 'camera'} />
           <div className="grid grid-cols-2 gap-4">
             <select className="w-full p-3 border rounded-lg" value={regBranch} onChange={e => setRegBranch(e.target.value)} disabled={regStep === 'camera'}>
@@ -117,7 +130,14 @@ export function RegistrationScreen({
           <input type="tel" maxLength={10} className="w-full p-3 border rounded-lg" value={regPhone} onChange={e => setRegPhone(e.target.value.replace(/\D/g, ''))} placeholder="Phone Number" disabled={regStep === 'camera'} />
           <input type="email" className="w-full p-3 border rounded-lg" value={regEmail} onChange={e => setRegEmail(e.target.value)} placeholder="Email" disabled={regStep === 'camera'} />
 
-          {regStep === 'details' ? (
+          {registrationEditStudent && regStep === 'details' ? (
+            <div className="flex gap-3">
+              <button onClick={handleBack} className="flex-1 border py-3 rounded-lg">Cancel</button>
+              <button onClick={handleSaveStudentEdits} disabled={loading} className="flex-1 bg-green-600 text-white py-3 rounded-lg font-bold">
+                {loading ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          ) : regStep === 'details' ? (
             <button onClick={handleProceedToCamera} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold">Proceed to Camera <ArrowRight className="w-4 h-4 inline-block ml-2" /></button>
           ) : (
             <div className="flex gap-3">

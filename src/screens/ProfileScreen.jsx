@@ -1,10 +1,9 @@
-import React from 'react';
-import { User, LogOut } from 'lucide-react';
+import React, { useRef } from 'react';
+import { ArrowLeft, Camera, Image as ImageIcon, Pencil, User, X } from 'lucide-react';
 
 export function ProfileScreen({
   appUser,
   profileEditMode,
-  setProfileEditMode,
   profileEmail,
   setProfileEmail,
   profilePhone,
@@ -13,28 +12,58 @@ export function ProfileScreen({
   setProfileDept,
   profilePhotoPreview,
   handleProfilePhotoChange,
+  handleOpenProfilePhotoActions,
+  showProfilePhotoActions,
+  setShowProfilePhotoActions,
+  handleRemoveProfilePhoto,
   handleSaveProfile,
   handleCancelProfileEdit,
-  handleLogout,
-  setView,
+  handleBack,
 }) {
+  const galleryInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      <button
+        type="button"
+        onClick={handleBack}
+        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-red-200 hover:text-red-700"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </button>
+
       <div className="bg-red-900 text-white rounded-3xl p-6 shadow flex items-center gap-4">
-        <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
-          {profilePhotoPreview ? <img src={profilePhotoPreview} alt="Profile" className="w-full h-full object-cover rounded-full" /> : <User className="w-6 h-6" />}
-        </div>
+        <button
+          type="button"
+          onClick={handleOpenProfilePhotoActions}
+          className="relative h-16 w-16 overflow-hidden rounded-full bg-white/20 ring-2 ring-white/20"
+          title="Change profile photo"
+        >
+          {profilePhotoPreview ? (
+            <img src={profilePhotoPreview} alt="Profile" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <User className="w-7 h-7" />
+            </div>
+          )}
+          <span className="absolute bottom-0 right-0 rounded-full bg-white p-1 text-red-700 shadow">
+            <Pencil className="h-3 w-3" />
+          </span>
+        </button>
         <div className="flex-1">
           <h2 className="font-bold text-xl">{appUser.name}</h2>
           <div className="text-sm uppercase">{appUser.role}</div>
         </div>
-        <button onClick={handleLogout} className="bg-red-800 px-3 py-2 rounded text-white">Logout</button>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow border">
         <div className="flex justify-between items-center mb-3">
           <h3 className="font-semibold text-slate-600">Faculty Details</h3>
-          {!profileEditMode && <button onClick={() => setProfileEditMode(true)} className="text-blue-600">Edit Profile</button>}
+          {profileEditMode && (
+            <div className="text-xs text-slate-500">Photo is auto-cropped to a square preview.</div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -61,20 +90,75 @@ export function ProfileScreen({
         </div>
 
         {profileEditMode && (
-          <div className="mt-3">
-            <div className="text-xs text-slate-400 mb-1">Profile Photo</div>
-            <input type="file" accept="image/*" onChange={handleProfilePhotoChange} />
-            <div className="flex gap-3 mt-3">
-              <button onClick={handleSaveProfile} className="bg-blue-600 text-white px-4 py-2 rounded">Save Changes</button>
-              <button onClick={handleCancelProfileEdit} className="border px-4 py-2 rounded">Cancel</button>
-            </div>
+          <div className="flex gap-3 mt-5">
+            <button onClick={handleSaveProfile} className="bg-blue-600 text-white px-4 py-2 rounded">Save Changes</button>
+            <button onClick={handleCancelProfileEdit} className="border px-4 py-2 rounded">Cancel</button>
           </div>
         )}
       </div>
 
-      {(['admin', 'principal', 'hod'].includes((appUser?.role || '').toLowerCase())) && (
-        <div className="bg-white p-4 rounded-xl shadow border">
-          <button onClick={() => setView('manage_users')} className="w-full bg-red-700 text-white py-3 rounded">Add Staff</button>
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleProfilePhotoChange}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="user"
+        className="hidden"
+        onChange={handleProfilePhotoChange}
+      />
+
+      {showProfilePhotoActions && (
+        <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-center border-b p-4">
+              <h3 className="font-bold text-slate-900">Profile Photo</h3>
+              <button onClick={() => setShowProfilePhotoActions(false)} className="ml-auto text-slate-500">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-2 p-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProfilePhotoActions(false);
+                  cameraInputRef.current?.click();
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-red-200 hover:text-red-700"
+              >
+                <Camera className="h-5 w-5" />
+                Camera
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProfilePhotoActions(false);
+                  galleryInputRef.current?.click();
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-red-200 hover:text-red-700"
+              >
+                <ImageIcon className="h-5 w-5" />
+                Gallery
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowProfilePhotoActions(false);
+                  handleRemoveProfilePhoto();
+                }}
+                className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-red-200 hover:text-red-700"
+              >
+                <Pencil className="h-5 w-5" />
+                Remove Photo
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

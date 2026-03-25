@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AlertCircle, CheckCircle, RefreshCw, X, Eye, EyeOff, LayoutDashboard, User, PieChart, Users, AlertTriangle, Printer } from 'lucide-react';
+import { AlertCircle, CheckCircle, RefreshCw, X, Eye, EyeOff, AlertTriangle } from 'lucide-react';
 import emailjs from '@emailjs/browser';
 import { QRCodeCanvas } from 'qrcode.react';
 
@@ -10,10 +10,10 @@ import { appId, FACE_API_SCRIPT, MODEL_URL, EMAILJS_SERVICE_ID, EMAILJS_REPORT_T
 import { performLogin as performLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
 
 // Screen components
-import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
+import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, StudentBrowserScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
 
 // Modal components
-import { SendReportModal, HistoryDetailModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal } from './modals';
+import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal } from './modals';
 
 // UI components
 import { Header, BottomNav, Message } from './components';
@@ -65,6 +65,7 @@ export default function App() {
 
   // Views
   const [view, setView] = useState('home'); // home | attendance | register | reports | database | profile | manage_users | history
+  const [isNavOpen, setIsNavOpen] = useState(false);
 
   // Students & logs
   const [students, setStudents] = useState([]);
@@ -98,6 +99,10 @@ export default function App() {
   const [searchResult, setSearchResult] = useState(null);
   const [studentHistory, setStudentHistory] = useState([]);
   const [idCardData, setIdCardData] = useState(null);
+  const [databaseBrowseYear, setDatabaseBrowseYear] = useState('All');
+  const [databaseBrowseBranch, setDatabaseBrowseBranch] = useState('All');
+  const [registrationEditStudent, setRegistrationEditStudent] = useState(null);
+  const [registrationReturnView, setRegistrationReturnView] = useState('home');
 
   // Add Staff
   const [newUserFirstName, setNewUserFirstName] = useState('');
@@ -122,6 +127,7 @@ export default function App() {
   const [profilePhone, setProfilePhone] = useState('');
   const [profileDept, setProfileDept] = useState('');
   const [profilePhotoPreview, setProfilePhotoPreview] = useState(null);
+  const [showProfilePhotoActions, setShowProfilePhotoActions] = useState(false);
 
   // Attendance sets
   const [markedToday, setMarkedToday] = useState(new Set());
@@ -140,14 +146,11 @@ export default function App() {
 
   // history: list of dates + counts
   const [historyList, setHistoryList] = useState([]); // { dateId, count }
-  const [historyDetail, setHistoryDetail] = useState([]); // list of student logs for selected date
-  const [showHistoryDetailModal, setShowHistoryDetailModal] = useState(false);
+  const [historyDetail, setHistoryDetail] = useState({ dateId: '', rows: [] });
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyDate, setHistoryDate] = useState(getTodayDateId()); // selected date in history view
-
-  // history filters
-  const [historyBranch, setHistoryBranch] = useState('');
-  const [historyYear, setHistoryYear] = useState('');
+  const [historyRollNo, setHistoryRollNo] = useState('');
+  const [historyStudentResult, setHistoryStudentResult] = useState(null);
 
   // Unidentified face modal
   const [unidentifiedFaceModal, setUnidentifiedFaceModal] = useState(null);
@@ -278,6 +281,7 @@ export default function App() {
     setProfilePhone(appUser.phone || '');
     setProfileDept(appUser.department || '');
     setProfilePhotoPreview(appUser.photo || null);
+    setShowProfilePhotoActions(false);
   }, [appUser]);
 
   // process reset token from URL
@@ -405,19 +409,25 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  const handleProceedToCamera = () => {
+  const validateRegistrationDetails = () => {
     if (!regName || !regId || !regPhone || !regEmail) {
       setStatusMsg({ type: 'error', text: "Please fill all fields" });
-      return;
+      return false;
     }
-    // simple validation
+
     if (!/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{10}$/.test(regId) || !/^\d{10}$/.test(regPhone)) {
       setStatusMsg({
         type: 'error',
         text: "Invalid Roll No or Phone (e.g., 22N71A6655, phone 10 digits)"
       });
-      return;
+      return false;
     }
+
+    return true;
+  };
+
+  const handleProceedToCamera = () => {
+    if (!validateRegistrationDetails()) return;
     setStatusMsg(null);
     setRegStep('camera');
   };
@@ -465,11 +475,14 @@ export default function App() {
       setUploadedImgSrc(null);
       setRegStep('details');
       setOverwriteModal(null);
+      return true;
     } catch (err) {
       console.error(err);
       setStatusMsg({ type: 'error', text: "Database error" });
+      return false;
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const buildUnknownFaceSignature = (descriptor) => {
@@ -1018,8 +1031,10 @@ export default function App() {
   // attendance UI handlers
   const handleDashboardStartAttendance = () => {
     // Ensure camera starts immediately when entering attendance mode.
+    resetViewState('attendance');
     setAttStep('camera');
     setView('attendance');
+    setIsNavOpen(false);
     setStatusMsg({ type: 'info', text: 'Starting camera and scanning for faces...' });
     startVideo();
   };
@@ -1082,6 +1097,141 @@ export default function App() {
     setStatusMsg({ type: 'info', text: 'Attendance session ended.' });
   };
 
+  const resetViewState = (nextView) => {
+    const today = getTodayDateId();
+
+    if (view === 'attendance' && nextView !== 'attendance') {
+      setAttStep('setup');
+      stopVideo();
+      promptedUnidentifiedRef.current.clear();
+      unknownFaceSkipUntilRef.current = 0;
+      scanSourceMetaRef.current = null;
+      setUnidentifiedFaceModal(null);
+      if (scanTimeoutRef.current) {
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = null;
+      }
+      scanInProgressRef.current = false;
+      setContinuousScanActive(false);
+    }
+
+    setSearchQuery('');
+    setSearchResult(null);
+    setStudentHistory([]);
+    setIdCardData(null);
+    setDatabaseBrowseYear('All');
+    setDatabaseBrowseBranch('All');
+    setRegistrationEditStudent(null);
+    setRegistrationReturnView('home');
+
+    setReportDate(today);
+    setReportBranch('All');
+    setReportYear('All');
+    setReportData(null);
+
+    setHistoryDate(today);
+    setHistoryList([]);
+    setHistoryDetail({ dateId: '', rows: [] });
+    setHistoryLoading(false);
+    setHistoryRollNo('');
+    setHistoryStudentResult(null);
+
+    setRegStep('details');
+    setRegMode('live');
+    setRegName('');
+    setRegId('');
+    setRegBranch('CSE');
+    setRegYear('1st');
+    setRegPhone('');
+    setRegEmail('');
+    setUploadedImgSrc(null);
+    setOverwriteModal(null);
+
+    setProfileEditMode(false);
+    setProfileEmail(appUser?.email || '');
+    setProfilePhone(appUser?.phone || '');
+    setProfileDept(appUser?.department || '');
+    setProfilePhotoPreview(appUser?.photo || null);
+    setShowProfilePhotoActions(false);
+
+    setNewUserFirstName('');
+    setNewUserLastName('');
+    setNewUserUser('');
+    setNewUserEmail('');
+    setNewUserDept('CSE');
+    setNewUserDesignation('Faculty');
+    setNewUserPass('');
+    setNewUserConfirmPass('');
+
+    setStatusMsg(null);
+  };
+
+  const navigateToView = (nextView) => {
+    resetViewState(nextView);
+    setView(nextView);
+    setIsNavOpen(false);
+  };
+
+  const handleRegistrationBack = () => {
+    setRegistrationEditStudent(null);
+    navigateToView(registrationReturnView || 'home');
+  };
+
+  const openStudentEditor = (student, nextView = 'register') => {
+    if (!student) return;
+
+    resetViewState(nextView);
+    setRegistrationEditStudent(student);
+    setRegistrationReturnView('database');
+    setRegStep('details');
+    setRegMode(student.photo ? 'upload' : 'live');
+    setRegName(student.name || '');
+    setRegId((student.studentId || '').toUpperCase());
+    setRegBranch(student.branch || 'CSE');
+    setRegYear(student.year || '1st');
+    setRegPhone(student.phone || '');
+    setRegEmail(student.email || '');
+    setUploadedImgSrc(student.photo || null);
+    setSearchQuery(student.studentId || '');
+    setSearchResult(student);
+    setView(nextView);
+    setIsNavOpen(false);
+  };
+
+  const handleSaveStudentEdits = async () => {
+    if (!registrationEditStudent) return;
+    if (!validateRegistrationDetails()) return;
+
+    try {
+      const updatedStudent = {
+        ...registrationEditStudent,
+        name: regName,
+        studentId: regId.toUpperCase(),
+        branch: regBranch,
+        year: regYear,
+        phone: regPhone,
+        email: regEmail
+      };
+
+      const saved = await performRegistration(updatedStudent, registrationEditStudent.studentId);
+      if (!saved) return;
+      setRegistrationEditStudent(null);
+      setRegistrationReturnView('home');
+      setView('database');
+    } catch (err) {
+      console.error(err);
+      setStatusMsg({ type: 'error', text: 'Failed to update student details' });
+    }
+  };
+
+  const handleOpenBranchStudents = (year, branch) => {
+    resetViewState('student_browser');
+    setDatabaseBrowseYear(year);
+    setDatabaseBrowseBranch(branch);
+    setView('student_browser');
+    setIsNavOpen(false);
+  };
+
   const handleRegisterUnidentifiedFace = async (studentData) => {
     try {
       setStatusMsg({ type: 'info', text: 'Registering unidentified person...' });
@@ -1140,10 +1290,11 @@ export default function App() {
       };
 
       // Register the student
-      await performRegistration(regData);
-
-      setStatusMsg({ type: 'success', text: `Successfully registered ${studentData.name}` });
-      closeUnidentifiedFaceModal();
+      const saved = await performRegistration(regData);
+      if (saved) {
+        setStatusMsg({ type: 'success', text: `Successfully registered ${studentData.name}` });
+        closeUnidentifiedFaceModal();
+      }
     } catch (error) {
       console.error('Error registering unidentified face:', error);
       setStatusMsg({ type: 'error', text: 'Failed to register person: ' + error.message });
@@ -1422,30 +1573,64 @@ export default function App() {
     setHistoryLoading(false);
   };
 
-  const fetchHistoryByDate = async (dateId, branch = '', year = '') => {
+  const fetchHistoryByDate = async (dateId) => {
     setHistoryLoading(true);
     try {
       const logsCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs');
       const snap = await getDocs(logsCol);
       let rows = snap.docs.map(d => ({ id: d.id, ...safeData(d.data()) }));
 
-      // apply branch/year filters client-side (if provided)
-      if (branch) {
-        const b = branch.toString().trim().toLowerCase();
-        rows = rows.filter(r => (r.branch || '').toString().trim().toLowerCase() === b);
-      }
-      if (year) {
-        const y = year.toString().trim().toLowerCase();
-        rows = rows.filter(r => (r.year || '').toString().trim().toLowerCase() === y);
-      }
-
       rows.sort((a, b) => (a.timeIn || '').localeCompare(b.timeIn || ''));
-      setHistoryDetail({ dateId, rows, branch, year });
-      setShowHistoryDetailModal(true);
+      setHistoryDetail({ dateId, rows });
     } catch (e) {
       console.error('fetchHistoryByDate error', e);
-      setHistoryDetail({ dateId, rows: [], branch, year });
-      setShowHistoryDetailModal(true);
+      setHistoryDetail({ dateId, rows: [] });
+    }
+    setHistoryLoading(false);
+  };
+
+  const handleHistoryStudentSearch = async () => {
+    const dateId = historyDate;
+    const normalizedRollNo = historyRollNo.trim().toUpperCase();
+
+    if (!dateId || !normalizedRollNo) {
+      setStatusMsg({ type: 'error', text: 'Select date and enter roll number' });
+      return;
+    }
+
+    setHistoryLoading(true);
+    try {
+      const student = students.find(
+        s => (s.studentId || '').trim().toUpperCase() === normalizedRollNo
+      );
+      const logRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs', normalizedRollNo);
+      const logSnap = await getDoc(logRef);
+
+      if (logSnap.exists()) {
+        const data = safeData(logSnap.data());
+        setHistoryStudentResult({
+          dateId,
+          studentId: normalizedRollNo,
+          name: data.name || student?.name || '',
+          status: data.status || 'Present',
+          timeIn: data.timeIn || '-',
+          photo: data.facePhoto || ''
+        });
+      } else {
+        setHistoryStudentResult({
+          dateId,
+          studentId: normalizedRollNo,
+          name: student?.name || '',
+          status: 'Absent',
+          timeIn: '-',
+          photo: ''
+        });
+      }
+      setStatusMsg(null);
+    } catch (error) {
+      console.error('handleHistoryStudentSearch error', error);
+      setHistoryStudentResult(null);
+      setStatusMsg({ type: 'error', text: 'Failed to check student history' });
     }
     setHistoryLoading(false);
   };
@@ -1499,6 +1684,12 @@ export default function App() {
   const handleGenerateIDCard = (student) => {
     setIdCardData(student);
   };
+
+  const databaseBrowseResults = students.filter((student) => {
+    const matchesYear = databaseBrowseYear === 'All' ? true : (student.year || '').trim() === databaseBrowseYear;
+    const matchesBranch = databaseBrowseBranch === 'All' ? true : (student.branch || '').trim().toUpperCase() === databaseBrowseBranch;
+    return matchesYear && matchesBranch;
+  });
 
   // -------------------------------------------------------------------
   // Add staff
@@ -1569,9 +1760,39 @@ export default function App() {
   const handleProfilePhotoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onload = () => setProfilePhotoPreview(reader.result);
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const size = Math.min(image.width, image.height);
+        const sx = Math.max(0, (image.width - size) / 2);
+        const sy = Math.max(0, (image.height - size) / 2);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) return;
+
+        canvas.width = size;
+        canvas.height = size;
+        ctx.drawImage(image, sx, sy, size, size, 0, 0, size, size);
+        setProfilePhotoPreview(canvas.toDataURL('image/jpeg', 0.9));
+        setProfileEditMode(true);
+      };
+      image.src = reader.result;
+    };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleOpenProfilePhotoActions = () => {
+    setProfileEditMode(true);
+    setShowProfilePhotoActions(true);
+  };
+
+  const handleRemoveProfilePhoto = () => {
+    setProfileEditMode(true);
+    setProfilePhotoPreview(null);
   };
 
   const handleSaveProfile = async () => {
@@ -1583,12 +1804,13 @@ export default function App() {
         phone: profilePhone,
         department: profileDept
       };
-      if (profilePhotoPreview) updateData.photo = profilePhotoPreview;
+      updateData.photo = profilePhotoPreview || '';
 
       await updateDoc(userRef, updateData);
       setAppUser(prev => prev ? { ...prev, ...updateData } : prev);
       setStatusMsg({ type: 'success', text: 'Profile updated successfully' });
       setProfileEditMode(false);
+      setShowProfilePhotoActions(false);
     } catch (err) {
       console.error(err);
       setStatusMsg({ type: 'error', text: 'Failed to update profile' });
@@ -1602,6 +1824,7 @@ export default function App() {
     setProfilePhone(appUser.phone || '');
     setProfileDept(appUser.department || '');
     setProfilePhotoPreview(appUser.photo || null);
+    setShowProfilePhotoActions(false);
   };
 
   // -------------------------------------------------------------------
@@ -1791,12 +2014,11 @@ export default function App() {
 
   // ---------- LOGGED-IN VIEW ----------
   return (
-    <div className="app-shell min-h-screen bg-slate-50 pb-24">
+    <div className="app-shell min-h-screen bg-slate-50 pb-8">
       <Message statusMsg={statusMsg} setStatusMsg={setStatusMsg} />
       
       {/* MODALS */}
       <SendReportModal showModal={showSendResultModal} result={sendReportResult} onClose={() => setShowSendResultModal(false)} />
-      <HistoryDetailModal showModal={showHistoryDetailModal} detail={historyDetail} onClose={() => setShowHistoryDetailModal(false)} />
       <IDCardModal idCardData={idCardData} onClose={() => setIdCardData(null)} />
       <OverwriteModal showModal={overwriteModal !== null} data={overwriteModal} onConfirm={(d) => { setOverwriteModal(null); performRegistration(d.newData, d.docId); }} onCancel={() => setOverwriteModal(null)} />
 
@@ -1809,7 +2031,7 @@ export default function App() {
       />
 
       {/* HEADER */}
-      <Header appUser={appUser} todayCount={todayCount} />
+      <Header appUser={appUser} todayCount={todayCount} onMenuClick={() => setIsNavOpen(true)} />
 
       {/* MAIN */}
       <main className="max-w-6xl mx-auto p-3 sm:p-4">
@@ -1818,11 +2040,12 @@ export default function App() {
           <DashboardScreen
             appUser={appUser}
             students={students}
-            setView={setView}
+            setView={navigateToView}
             handleDashboardStartAttendance={handleDashboardStartAttendance}
             promoteYear={promoteYear}
             setPromoteYear={setPromoteYear}
             handlePromoteYears={handlePromoteYears}
+            handleOpenBranchStudents={handleOpenBranchStudents}
           />
         )}
 
@@ -1853,6 +2076,9 @@ export default function App() {
             handleCheckAndRegister={handleCheckAndRegister}
             handleFileChange={handleFileChange}
             toggleCameraFacing={toggleCameraFacing}
+            handleBack={handleRegistrationBack}
+            registrationEditStudent={registrationEditStudent}
+            handleSaveStudentEdits={handleSaveStudentEdits}
           />
         )}
 
@@ -1869,6 +2095,7 @@ export default function App() {
             handleGenerateReport={handleGenerateReport}
             handleDownloadReport={handleDownloadReport}
             loading={loading}
+            handleBack={() => navigateToView('home')}
           />
         )}
 
@@ -1882,6 +2109,7 @@ export default function App() {
             markedToday={markedToday}
             students={students}
             handleEndSession={handleEndSession}
+            handleBack={() => navigateToView('home')}
           />
         )}
 
@@ -1893,6 +2121,19 @@ export default function App() {
             searchResult={searchResult}
             handleSearch={handleSearch}
             handleGenerateIDCard={handleGenerateIDCard}
+            handleBack={() => navigateToView('home')}
+          />
+        )}
+
+        {view === 'student_browser' && (
+          <StudentBrowserScreen
+            databaseBrowseYear={databaseBrowseYear}
+            setDatabaseBrowseYear={setDatabaseBrowseYear}
+            databaseBrowseBranch={databaseBrowseBranch}
+            setDatabaseBrowseBranch={setDatabaseBrowseBranch}
+            databaseBrowseResults={databaseBrowseResults}
+            handleEditStudent={openStudentEditor}
+            handleBack={() => navigateToView('home')}
           />
         )}
 
@@ -1901,14 +2142,15 @@ export default function App() {
           <HistoryScreen
             historyDate={historyDate}
             setHistoryDate={setHistoryDate}
-            historyBranch={historyBranch}
-            setHistoryBranch={setHistoryBranch}
-            historyYear={historyYear}
-            setHistoryYear={setHistoryYear}
             historyLoading={historyLoading}
             historyList={historyList}
+            historyDetail={historyDetail}
+            historyRollNo={historyRollNo}
+            setHistoryRollNo={setHistoryRollNo}
+            historyStudentResult={historyStudentResult}
             fetchHistoryByDate={fetchHistoryByDate}
-            setView={setView}
+            handleHistoryStudentSearch={handleHistoryStudentSearch}
+            setView={navigateToView}
             fetchHistoryList={fetchHistoryList}
           />
         )}
@@ -1918,7 +2160,6 @@ export default function App() {
           <ProfileScreen
             appUser={appUser}
             profileEditMode={profileEditMode}
-            setProfileEditMode={setProfileEditMode}
             profileEmail={profileEmail}
             setProfileEmail={setProfileEmail}
             profilePhone={profilePhone}
@@ -1927,10 +2168,13 @@ export default function App() {
             setProfileDept={setProfileDept}
             profilePhotoPreview={profilePhotoPreview}
             handleProfilePhotoChange={handleProfilePhotoChange}
+            handleOpenProfilePhotoActions={handleOpenProfilePhotoActions}
+            showProfilePhotoActions={showProfilePhotoActions}
+            setShowProfilePhotoActions={setShowProfilePhotoActions}
+            handleRemoveProfilePhoto={handleRemoveProfilePhoto}
             handleSaveProfile={handleSaveProfile}
             handleCancelProfileEdit={handleCancelProfileEdit}
-            handleLogout={handleLogout}
-            setView={setView}
+            handleBack={() => navigateToView('home')}
           />
         )}
 
@@ -1955,7 +2199,7 @@ export default function App() {
             setNewUserConfirmPass={setNewUserConfirmPass}
             loading={loading}
             handleCreateStaff={handleCreateStaff}
-            setView={setView}
+            setView={navigateToView}
           />
         )}
       </main>
@@ -2010,8 +2254,15 @@ export default function App() {
 
       {/* History detail modal (moved to separate component) */}
 
-      {/* BOTTOM NAV */}
-      <BottomNav view={view} setView={setView} />
+      <BottomNav
+        view={view}
+        setView={navigateToView}
+        isOpen={isNavOpen}
+        setIsOpen={setIsNavOpen}
+        canManageUsers={['admin', 'principal', 'hod'].includes((appUser?.role || '').toLowerCase())}
+        appUser={appUser}
+        handleLogout={handleLogout}
+      />
     </div>
   );
 }

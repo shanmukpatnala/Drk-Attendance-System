@@ -4,6 +4,7 @@ export { RegistrationScreen } from './RegistrationScreen';
 export { AttendanceScreen } from './AttendanceScreen';
 export { ReportsScreen } from './ReportsScreen';
 export { DatabaseScreen } from './DatabaseScreen';
+export { StudentBrowserScreen } from './StudentBrowserScreen';
 export { HistoryScreen } from './HistoryScreen';
 export { ProfileScreen } from './ProfileScreen';
 export { ManageUsersScreen } from './ManageUsersScreen';

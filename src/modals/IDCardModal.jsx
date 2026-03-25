@@ -1,21 +1,42 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import QRCode from 'qrcode.react';
 import { X } from 'lucide-react';
 
-/**
- * HOW TO ADJUST THE LOGO:
- * 1. Place your logo image file in: public/logos/login-logo.png
- * 2. Update the src in the header image below (currently set to "/logos/login-logo.png").
- * Example: <img src="/logos/login-logo.png" alt="Logo" className="h-14 w-14 object-contain" />
- *
- * Logo requirements:
- * - Format: PNG, JPG, SVG
- * - Size: 48x48px or square format (recommended)
- * - Place in public/logos/ folder
- */
-
 export function IDCardModal({ idCardData, onClose }) {
+  const cardRef = useRef(null);
+
   if (!idCardData) return null;
+
+  const handlePrint = () => {
+    const cardMarkup = cardRef.current?.innerHTML;
+    if (!cardMarkup) return;
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>ID Card - ${idCardData.studentId || 'Student'}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 24px; background: #f8fafc; }
+            .print-card { width: 384px; margin: 0 auto; }
+            img { max-width: 100%; }
+          </style>
+        </head>
+        <body>
+          <div class="print-card">${cardMarkup}</div>
+          <script>
+            window.onload = function() {
+              window.print();
+              window.onafterprint = function() { window.close(); };
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[170] p-4">
@@ -26,8 +47,7 @@ export function IDCardModal({ idCardData, onClose }) {
         </div>
 
         <div className="p-8 flex justify-center">
-          <div className="w-96 bg-white rounded-xl shadow-lg border border-slate-300" style={{ height: 'auto', padding: '16px' }}>
-            {/* Header: Logo */}
+          <div ref={cardRef} className="w-96 bg-white rounded-xl shadow-lg border border-slate-300" style={{ height: 'auto', padding: '16px' }}>
             <div className="flex items-center gap-3 pb-4 border-b border-slate-200">
               <div className="flex-shrink-0">
                 <img src="/logos/login-logo.png" alt="Logo" className="h-14 w-21 object-contain" />
@@ -46,33 +66,33 @@ export function IDCardModal({ idCardData, onClose }) {
               <div className="flex items-end gap-3">
                 <div className="flex-1">
                   <div className="w-full space-y-1 text-xs">
-                  <div>
-                    <div className="font-semibold text-slate-600">Name</div>
-                    <div className="font-bold text-slate-800 text-sm">{idCardData.name || 'N/A'}</div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-600">Roll No</div>
-                    <div className="font-bold text-slate-800">{idCardData.studentId || 'N/A'}</div>
-                  </div>
-                  <div>
-                    <div className="font-semibold text-slate-600">Email</div>
-                    <div className="text-slate-800 truncate">{idCardData.email || 'N/A'}</div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-1">
                     <div>
-                      <div className="font-semibold text-slate-600">Branch</div>
-                      <div className="text-slate-800">{idCardData.branch || 'N/A'}</div>
+                      <div className="font-semibold text-slate-600">Name</div>
+                      <div className="font-bold text-slate-800 text-sm">{idCardData.name || 'N/A'}</div>
                     </div>
                     <div>
-                      <div className="font-semibold text-slate-600">Year</div>
-                      <div className="text-slate-800">{idCardData.year || 'N/A'}</div>
+                      <div className="font-semibold text-slate-600">Roll No</div>
+                      <div className="font-bold text-slate-800">{idCardData.studentId || 'N/A'}</div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-slate-600">Email</div>
+                      <div className="text-slate-800 truncate">{idCardData.email || 'N/A'}</div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      <div>
+                        <div className="font-semibold text-slate-600">Branch</div>
+                        <div className="text-slate-800">{idCardData.branch || 'N/A'}</div>
+                      </div>
+                      <div>
+                        <div className="font-semibold text-slate-600">Year</div>
+                        <div className="text-slate-800">{idCardData.year || 'N/A'}</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="font-semibold text-slate-600">Phone</div>
+                      <div className="text-slate-800">{idCardData.phone || 'N/A'}</div>
                     </div>
                   </div>
-                  <div>
-                    <div className="font-semibold text-slate-600">Phone</div>
-                    <div className="text-slate-800">{idCardData.phone || 'N/A'}</div>
-                  </div>
-                </div>
                 </div>
 
                 <div className="flex flex-col items-center justify-end">
@@ -87,6 +107,7 @@ export function IDCardModal({ idCardData, onClose }) {
         </div>
 
         <div className="p-4 border-t flex justify-end gap-2">
+          <button onClick={handlePrint} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Print ID Card</button>
           <button onClick={onClose} className="px-4 py-2 border rounded hover:bg-slate-50">Close</button>
         </div>
       </div>

@@ -1,77 +1,105 @@
 import React from 'react';
-import { X } from 'lucide-react';
-import { getTodayDateId } from '../utils/helpers';
 
 export function HistoryScreen({
   historyDate,
   setHistoryDate,
-  historyBranch,
-  setHistoryBranch,
-  historyYear,
-  setHistoryYear,
   historyLoading,
-  historyList,
-  fetchHistoryByDate,
+  historyRollNo,
+  setHistoryRollNo,
+  historyStudentResult,
+  handleHistoryStudentSearch,
   setView,
   fetchHistoryList,
 }) {
   return (
     <div className="space-y-6">
-      <div className="bg-white p-4 rounded-xl shadow border">
-        <div className="flex justify-between items-center">
+      <div className="rounded-xl border bg-white p-4 shadow">
+        <div className="flex items-center justify-between">
           <h2 className="font-bold">Attendance History (Student)</h2>
           <div className="flex items-center gap-2">
-            <button onClick={fetchHistoryList} className="px-3 py-2 border rounded">Refresh Dates</button>
-            <button onClick={() => setView('home')} className="px-3 py-2 border rounded">Back</button>
+            <button onClick={fetchHistoryList} className="rounded border px-3 py-2">Refresh Dates</button>
+            <button onClick={() => setView('home')} className="rounded border px-3 py-2">Back</button>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+        <div className="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-[minmax(260px,1fr)_minmax(220px,0.8fr)_auto]">
+          <div>
+            <label className="block text-xs text-slate-500">Roll No</label>
+            <input
+              type="text"
+              maxLength={10}
+              value={historyRollNo}
+              onChange={e => setHistoryRollNo(e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 10))}
+              className="w-full rounded border p-3 font-mono"
+              placeholder="22N71A6655"
+            />
+          </div>
+
           <div>
             <label className="block text-xs text-slate-500">Select Date</label>
-            <input type="date" className="w-full p-2 border rounded" value={historyDate} onChange={e => setHistoryDate(e.target.value)} />
+            <input
+              type="date"
+              className="w-full rounded border p-3"
+              value={historyDate}
+              onChange={e => setHistoryDate(e.target.value)}
+            />
           </div>
 
-          <div>
-            <label className="block text-xs text-slate-500">Branch (optional)</label>
-            <select className="w-full p-2 border rounded" value={historyBranch} onChange={e => setHistoryBranch(e.target.value)}>
-              <option value=''>All</option>
-              <option value="CSE">CSE</option><option value="CSM">CSM</option><option value="CSD">CSD</option><option value="CSC">CSC</option><option value="ECE">ECE</option><option value="EEE">EEE</option><option value="MECH">MECH</option><option value="CIVIL">CIVIL</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs text-slate-500">Year (optional)</label>
-            <select className="w-full p-2 border rounded" value={historyYear} onChange={e => setHistoryYear(e.target.value)}>
-              <option value=''>All</option>
-              <option value="1st">1st</option><option value="2nd">2nd</option><option value="3rd">3rd</option><option value="4th">4th</option>
-            </select>
-          </div>
-
-          <div className="flex gap-2">
-            <button onClick={() => fetchHistoryByDate(historyDate, historyBranch, historyYear)} className="px-4 py-2 bg-blue-600 text-white rounded">Show</button>
-            <button onClick={() => { const today = getTodayDateId(); setHistoryDate(today); fetchHistoryByDate(today, historyBranch, historyYear); }} className="px-4 py-2 border rounded">Today</button>
+          <div className="flex items-end gap-2">
+            <button onClick={handleHistoryStudentSearch} className="w-full rounded bg-red-700 px-5 py-3 text-white lg:w-auto">
+              Check
+            </button>
           </div>
         </div>
 
-        <div className="mt-6">
-          <h3 className="font-semibold mb-3">Available Dates</h3>
-          {historyLoading && <div className="text-sm text-slate-500">Loading...</div>}
-          {!historyLoading && !historyList.length && <div className="text-sm text-slate-500">No history found.</div>}
-          {!historyLoading && historyList.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {historyList.map(h => (
-                <div key={h.dateId} className="p-3 border rounded flex items-center justify-between">
-                  <div>
-                    <div className="font-mono text-sm">{h.dateId}</div>
-                    <div className="text-xs text-slate-500">{h.count} present</div>
+        <div className="mt-6 rounded-xl border bg-slate-50 p-4">
+          <h3 className="font-semibold">Student Status</h3>
+
+          {historyLoading && <div className="mt-4 text-sm text-slate-500">Checking...</div>}
+
+          {!historyLoading && historyStudentResult && (
+            <div className="mt-4 rounded-xl border bg-white p-4">
+              <div className="grid gap-4 sm:grid-cols-[220px_1fr]">
+                <div className="overflow-hidden rounded-xl border bg-slate-50">
+                  {historyStudentResult.status === 'Present' && historyStudentResult.photo ? (
+                    <img
+                      src={historyStudentResult.photo}
+                      alt={historyStudentResult.name || historyStudentResult.studentId}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-56 items-center justify-center px-4 text-center text-sm text-slate-500">
+                      Photo available only for present students.
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-bold">{historyStudentResult.name || 'Student'}</div>
+                      <div className="mt-1 text-xs text-slate-500">Date: {historyStudentResult.dateId}</div>
+                      <div className="text-xs text-slate-500">Roll No: {historyStudentResult.studentId}</div>
+                    </div>
+                    <div className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      historyStudentResult.status === 'Present'
+                        ? 'bg-green-100 text-green-700'
+                        : 'bg-red-100 text-red-700'
+                    }`}>
+                      {historyStudentResult.status}
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => fetchHistoryByDate(h.dateId, historyBranch, historyYear)} className="px-3 py-2 bg-blue-600 text-white rounded">View</button>
+
+                  <div className="mt-4 text-sm text-slate-600">
+                    Time In: <b>{historyStudentResult.timeIn || '-'}</b>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
+          )}
+
+          {!historyLoading && !historyStudentResult && (
+            <div className="mt-4 text-sm text-slate-500">No student checked yet.</div>
           )}
         </div>
       </div>
