@@ -12,7 +12,8 @@ export function DashboardScreen({
   handleDashboardStartAttendance,
   promoteYear,
   setPromoteYear,
-  handlePromoteYears
+  handlePromoteYears,
+  handleOpenBranchStudents
 }) {
   const isAdmin = (appUser?.role || '').toLowerCase() === 'admin';
   const [now, setNow] = useState(() => new Date());
@@ -142,12 +143,14 @@ export function DashboardScreen({
 
               <div className="mt-4 flex flex-wrap gap-2">
                 {branches.map(({ branch, count }) => (
-                  <div
+                  <button
                     key={`${year}-${branch}`}
-                    className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm"
+                    type="button"
+                    onClick={() => handleOpenBranchStudents(year, branch)}
+                    className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm transition hover:border-red-300 hover:text-red-700"
                   >
                     <span className="font-semibold">{branch}</span>: {count || 0}
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

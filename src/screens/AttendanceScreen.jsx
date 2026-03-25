@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Timer, RefreshCw, CheckCircle, ChevronUp, ChevronDown, ScanLine, Users, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, Timer, RefreshCw, CheckCircle, ChevronUp, ChevronDown, ScanLine, Users, ShieldCheck } from 'lucide-react';
 
 export function AttendanceScreen({
   attStep,
@@ -8,11 +8,22 @@ export function AttendanceScreen({
   markedToday,
   students,
   handleEndSession,
+  handleBack,
 }) {
   const [showMarkedList, setShowMarkedList] = useState(false);
 
   return (
     <div className="flex flex-col items-center space-y-4">
+      <div className="w-full max-w-6xl">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:border-red-200 hover:text-red-700"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </button>
+      </div>
       <div className="w-full max-w-6xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-xl">
         {attStep === 'setup' && (
           <div className="bg-gradient-to-br from-red-950 via-red-900 to-amber-900 p-6 text-white sm:p-8">

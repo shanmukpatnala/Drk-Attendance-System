@@ -10,7 +10,7 @@ import { appId, FACE_API_SCRIPT, MODEL_URL, EMAILJS_SERVICE_ID, EMAILJS_REPORT_T
 import { performLogin as performLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
 
 // Screen components
-import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
+import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, StudentBrowserScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
 
 // Modal components
 import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal } from './modals';
@@ -99,6 +99,10 @@ export default function App() {
   const [searchResult, setSearchResult] = useState(null);
   const [studentHistory, setStudentHistory] = useState([]);
   const [idCardData, setIdCardData] = useState(null);
+  const [databaseBrowseYear, setDatabaseBrowseYear] = useState('All');
+  const [databaseBrowseBranch, setDatabaseBrowseBranch] = useState('All');
+  const [registrationEditStudent, setRegistrationEditStudent] = useState(null);
+  const [registrationReturnView, setRegistrationReturnView] = useState('home');
 
   // Add Staff
   const [newUserFirstName, setNewUserFirstName] = useState('');
@@ -123,6 +127,7 @@ export default function App() {
   const [profilePhone, setProfilePhone] = useState('');
   const [profileDept, setProfileDept] = useState('');
   const [profilePhotoPreview, setProfilePhotoPreview] = useState(null);
+  const [showProfilePhotoActions, setShowProfilePhotoActions] = useState(false);
 
   // Attendance sets
   const [markedToday, setMarkedToday] = useState(new Set());
@@ -276,6 +281,7 @@ export default function App() {
     setProfilePhone(appUser.phone || '');
     setProfileDept(appUser.department || '');
     setProfilePhotoPreview(appUser.photo || null);
+    setShowProfilePhotoActions(false);
   }, [appUser]);
 
   // process reset token from URL
@@ -403,19 +409,25 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  const handleProceedToCamera = () => {
+  const validateRegistrationDetails = () => {
     if (!regName || !regId || !regPhone || !regEmail) {
       setStatusMsg({ type: 'error', text: "Please fill all fields" });
-      return;
+      return false;
     }
-    // simple validation
+
     if (!/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{10}$/.test(regId) || !/^\d{10}$/.test(regPhone)) {
       setStatusMsg({
         type: 'error',
         text: "Invalid Roll No or Phone (e.g., 22N71A6655, phone 10 digits)"
       });
-      return;
+      return false;
     }
+
+    return true;
+  };
+
+  const handleProceedToCamera = () => {
+    if (!validateRegistrationDetails()) return;
     setStatusMsg(null);
     setRegStep('camera');
   };
@@ -463,11 +475,14 @@ export default function App() {
       setUploadedImgSrc(null);
       setRegStep('details');
       setOverwriteModal(null);
+      return true;
     } catch (err) {
       console.error(err);
       setStatusMsg({ type: 'error', text: "Database error" });
+      return false;
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const buildUnknownFaceSignature = (descriptor) => {
@@ -1104,6 +1119,10 @@ export default function App() {
     setSearchResult(null);
     setStudentHistory([]);
     setIdCardData(null);
+    setDatabaseBrowseYear('All');
+    setDatabaseBrowseBranch('All');
+    setRegistrationEditStudent(null);
+    setRegistrationReturnView('home');
 
     setReportDate(today);
     setReportBranch('All');
@@ -1133,6 +1152,7 @@ export default function App() {
     setProfilePhone(appUser?.phone || '');
     setProfileDept(appUser?.department || '');
     setProfilePhotoPreview(appUser?.photo || null);
+    setShowProfilePhotoActions(false);
 
     setNewUserFirstName('');
     setNewUserLastName('');
@@ -1149,6 +1169,66 @@ export default function App() {
   const navigateToView = (nextView) => {
     resetViewState(nextView);
     setView(nextView);
+    setIsNavOpen(false);
+  };
+
+  const handleRegistrationBack = () => {
+    setRegistrationEditStudent(null);
+    navigateToView(registrationReturnView || 'home');
+  };
+
+  const openStudentEditor = (student, nextView = 'register') => {
+    if (!student) return;
+
+    resetViewState(nextView);
+    setRegistrationEditStudent(student);
+    setRegistrationReturnView('database');
+    setRegStep('details');
+    setRegMode(student.photo ? 'upload' : 'live');
+    setRegName(student.name || '');
+    setRegId((student.studentId || '').toUpperCase());
+    setRegBranch(student.branch || 'CSE');
+    setRegYear(student.year || '1st');
+    setRegPhone(student.phone || '');
+    setRegEmail(student.email || '');
+    setUploadedImgSrc(student.photo || null);
+    setSearchQuery(student.studentId || '');
+    setSearchResult(student);
+    setView(nextView);
+    setIsNavOpen(false);
+  };
+
+  const handleSaveStudentEdits = async () => {
+    if (!registrationEditStudent) return;
+    if (!validateRegistrationDetails()) return;
+
+    try {
+      const updatedStudent = {
+        ...registrationEditStudent,
+        name: regName,
+        studentId: regId.toUpperCase(),
+        branch: regBranch,
+        year: regYear,
+        phone: regPhone,
+        email: regEmail
+      };
+
+      const saved = await performRegistration(updatedStudent, registrationEditStudent.studentId);
+      if (!saved) return;
+      setRegistrationEditStudent(null);
+      setRegistrationReturnView('home');
+      setView('database');
+    } catch (err) {
+      console.error(err);
+      setStatusMsg({ type: 'error', text: 'Failed to update student details' });
+    }
+  };
+
+  const handleOpenBranchStudents = (year, branch) => {
+    resetViewState('student_browser');
+    setDatabaseBrowseYear(year);
+    setDatabaseBrowseBranch(branch);
+    setView('student_browser');
     setIsNavOpen(false);
   };
 
@@ -1210,10 +1290,11 @@ export default function App() {
       };
 
       // Register the student
-      await performRegistration(regData);
-
-      setStatusMsg({ type: 'success', text: `Successfully registered ${studentData.name}` });
-      closeUnidentifiedFaceModal();
+      const saved = await performRegistration(regData);
+      if (saved) {
+        setStatusMsg({ type: 'success', text: `Successfully registered ${studentData.name}` });
+        closeUnidentifiedFaceModal();
+      }
     } catch (error) {
       console.error('Error registering unidentified face:', error);
       setStatusMsg({ type: 'error', text: 'Failed to register person: ' + error.message });
@@ -1604,6 +1685,12 @@ export default function App() {
     setIdCardData(student);
   };
 
+  const databaseBrowseResults = students.filter((student) => {
+    const matchesYear = databaseBrowseYear === 'All' ? true : (student.year || '').trim() === databaseBrowseYear;
+    const matchesBranch = databaseBrowseBranch === 'All' ? true : (student.branch || '').trim().toUpperCase() === databaseBrowseBranch;
+    return matchesYear && matchesBranch;
+  });
+
   // -------------------------------------------------------------------
   // Add staff
   // -------------------------------------------------------------------
@@ -1673,9 +1760,39 @@ export default function App() {
   const handleProfilePhotoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
+
     const reader = new FileReader();
-    reader.onload = () => setProfilePhotoPreview(reader.result);
+    reader.onload = () => {
+      const image = new Image();
+      image.onload = () => {
+        const size = Math.min(image.width, image.height);
+        const sx = Math.max(0, (image.width - size) / 2);
+        const sy = Math.max(0, (image.height - size) / 2);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) return;
+
+        canvas.width = size;
+        canvas.height = size;
+        ctx.drawImage(image, sx, sy, size, size, 0, 0, size, size);
+        setProfilePhotoPreview(canvas.toDataURL('image/jpeg', 0.9));
+        setProfileEditMode(true);
+      };
+      image.src = reader.result;
+    };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleOpenProfilePhotoActions = () => {
+    setProfileEditMode(true);
+    setShowProfilePhotoActions(true);
+  };
+
+  const handleRemoveProfilePhoto = () => {
+    setProfileEditMode(true);
+    setProfilePhotoPreview(null);
   };
 
   const handleSaveProfile = async () => {
@@ -1687,12 +1804,13 @@ export default function App() {
         phone: profilePhone,
         department: profileDept
       };
-      if (profilePhotoPreview) updateData.photo = profilePhotoPreview;
+      updateData.photo = profilePhotoPreview || '';
 
       await updateDoc(userRef, updateData);
       setAppUser(prev => prev ? { ...prev, ...updateData } : prev);
       setStatusMsg({ type: 'success', text: 'Profile updated successfully' });
       setProfileEditMode(false);
+      setShowProfilePhotoActions(false);
     } catch (err) {
       console.error(err);
       setStatusMsg({ type: 'error', text: 'Failed to update profile' });
@@ -1706,6 +1824,7 @@ export default function App() {
     setProfilePhone(appUser.phone || '');
     setProfileDept(appUser.department || '');
     setProfilePhotoPreview(appUser.photo || null);
+    setShowProfilePhotoActions(false);
   };
 
   // -------------------------------------------------------------------
@@ -1926,6 +2045,7 @@ export default function App() {
             promoteYear={promoteYear}
             setPromoteYear={setPromoteYear}
             handlePromoteYears={handlePromoteYears}
+            handleOpenBranchStudents={handleOpenBranchStudents}
           />
         )}
 
@@ -1956,6 +2076,9 @@ export default function App() {
             handleCheckAndRegister={handleCheckAndRegister}
             handleFileChange={handleFileChange}
             toggleCameraFacing={toggleCameraFacing}
+            handleBack={handleRegistrationBack}
+            registrationEditStudent={registrationEditStudent}
+            handleSaveStudentEdits={handleSaveStudentEdits}
           />
         )}
 
@@ -1972,6 +2095,7 @@ export default function App() {
             handleGenerateReport={handleGenerateReport}
             handleDownloadReport={handleDownloadReport}
             loading={loading}
+            handleBack={() => navigateToView('home')}
           />
         )}
 
@@ -1985,6 +2109,7 @@ export default function App() {
             markedToday={markedToday}
             students={students}
             handleEndSession={handleEndSession}
+            handleBack={() => navigateToView('home')}
           />
         )}
 
@@ -1996,6 +2121,19 @@ export default function App() {
             searchResult={searchResult}
             handleSearch={handleSearch}
             handleGenerateIDCard={handleGenerateIDCard}
+            handleBack={() => navigateToView('home')}
+          />
+        )}
+
+        {view === 'student_browser' && (
+          <StudentBrowserScreen
+            databaseBrowseYear={databaseBrowseYear}
+            setDatabaseBrowseYear={setDatabaseBrowseYear}
+            databaseBrowseBranch={databaseBrowseBranch}
+            setDatabaseBrowseBranch={setDatabaseBrowseBranch}
+            databaseBrowseResults={databaseBrowseResults}
+            handleEditStudent={openStudentEditor}
+            handleBack={() => navigateToView('home')}
           />
         )}
 
@@ -2022,7 +2160,6 @@ export default function App() {
           <ProfileScreen
             appUser={appUser}
             profileEditMode={profileEditMode}
-            setProfileEditMode={setProfileEditMode}
             profileEmail={profileEmail}
             setProfileEmail={setProfileEmail}
             profilePhone={profilePhone}
@@ -2031,10 +2168,13 @@ export default function App() {
             setProfileDept={setProfileDept}
             profilePhotoPreview={profilePhotoPreview}
             handleProfilePhotoChange={handleProfilePhotoChange}
+            handleOpenProfilePhotoActions={handleOpenProfilePhotoActions}
+            showProfilePhotoActions={showProfilePhotoActions}
+            setShowProfilePhotoActions={setShowProfilePhotoActions}
+            handleRemoveProfilePhoto={handleRemoveProfilePhoto}
             handleSaveProfile={handleSaveProfile}
             handleCancelProfileEdit={handleCancelProfileEdit}
-            handleLogout={handleLogout}
-            setView={navigateToView}
+            handleBack={() => navigateToView('home')}
           />
         )}
 
@@ -2119,7 +2259,9 @@ export default function App() {
         setView={navigateToView}
         isOpen={isNavOpen}
         setIsOpen={setIsNavOpen}
-        isAdmin={(appUser?.role || '').toLowerCase() === 'admin'}
+        canManageUsers={['admin', 'principal', 'hod'].includes((appUser?.role || '').toLowerCase())}
+        appUser={appUser}
+        handleLogout={handleLogout}
       />
     </div>
   );
