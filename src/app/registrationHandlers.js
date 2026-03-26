@@ -1,5 +1,6 @@
 import { setDoc, doc } from '../utils/firebase';
 import { appId } from './constants';
+import { isValidRollNo } from '../utils/helpers';
 
 export const handleFileChange = ({ e, setUploadedImgSrc }) => {
   const file = e.target.files[0];
@@ -14,8 +15,8 @@ export const handleProceedToCamera = ({ regName, regId, regPhone, regEmail, setS
     setStatusMsg({ type: 'error', text: "Please fill all fields" });
     return;
   }
-  if (!/^\d{2}[A-Z]\d{2}[A-Z]\d{4}$/.test(regId) || !/^\d{10}$/.test(regPhone)) {
-    setStatusMsg({ type: 'error', text: "Invalid Roll No or Phone (roll no format: 22N71A6655, phone must be 10 digits)" });
+  if (!isValidRollNo(regId) || !/^\d{10}$/.test(regPhone)) {
+    setStatusMsg({ type: 'error', text: "Invalid Roll No or Phone (format: 22N71A6655, positions 3 and 6 must be letters, phone must be 10 digits)" });
     return;
   }
   setStatusMsg(null);
