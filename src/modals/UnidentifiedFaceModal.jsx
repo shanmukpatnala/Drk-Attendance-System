@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, User, Camera, Save, AlertCircle, Square } from 'lucide-react';
+import { isValidRollNo } from '../utils/helpers';
 
 export function UnidentifiedFaceModal({ isOpen, onClose, onEndSession, facePhoto, onRegister }) {
   const [name, setName] = useState('');
@@ -28,8 +29,8 @@ export function UnidentifiedFaceModal({ isOpen, onClose, onEndSession, facePhoto
 
     if (!studentId.trim()) {
       newErrors.studentId = 'Roll No is required';
-    } else if (!/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{10}$/.test(studentId)) {
-      newErrors.studentId = 'Invalid format (e.g., 22N71A6655)';
+    } else if (!isValidRollNo(studentId)) {
+      newErrors.studentId = 'Invalid format. Use 22N71A6655, with letters in positions 3 and 6';
     }
 
     if (!phone.trim()) {

@@ -117,7 +117,7 @@ export function RegistrationScreen({
         </h2>
 
         <div className="space-y-3">
-          <input type="text" maxLength={10} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={handleRegIdChange} placeholder="22N71A6655" disabled={regStep === 'camera' || Boolean(registrationEditStudent)} />
+          <input type="text" maxLength={10} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={handleRegIdChange} placeholder="22N71A6655" disabled={regStep === 'camera'} />
           <input type="text" className="w-full p-3 border rounded-lg" value={regName} onChange={e => setRegName(e.target.value.toUpperCase())} placeholder="Full Name" disabled={regStep === 'camera'} />
           <div className="grid grid-cols-2 gap-4">
             <select className="w-full p-3 border rounded-lg" value={regBranch} onChange={e => setRegBranch(e.target.value)} disabled={regStep === 'camera'}>

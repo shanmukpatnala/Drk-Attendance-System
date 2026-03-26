@@ -4,8 +4,8 @@ import emailjs from '@emailjs/browser';
 import { QRCodeCanvas } from 'qrcode.react';
 
 // Firebase & utilities
-import { auth, signInAnonymously, onAuthStateChanged, serverTimestamp, collection, addDoc, db, getDocs, updateDoc, doc, getDoc, query, where, onSnapshot, orderBy, setDoc } from './utils/firebase';
-import { hashPassword, safeData, getTodayDateId, compressImage, formatTime } from './utils/helpers';
+import { auth, signInAnonymously, onAuthStateChanged, serverTimestamp, collection, addDoc, db, getDocs, updateDoc, doc, getDoc, query, where, onSnapshot, orderBy, setDoc, deleteDoc } from './utils/firebase';
+import { hashPassword, safeData, getTodayDateId, compressImage, formatTime, isValidRollNo } from './utils/helpers';
 import { appId, FACE_API_SCRIPT, MODEL_URL, EMAILJS_SERVICE_ID, EMAILJS_REPORT_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, SHOW_EMAIL_BUTTON, appConfig } from './app/constants';
 import { performLogin as performLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
 
@@ -415,10 +415,10 @@ export default function App() {
       return false;
     }
 
-    if (!/^(?=.*[A-Z])(?=.*\d)[A-Z0-9]{10}$/.test(regId) || !/^\d{10}$/.test(regPhone)) {
+    if (!isValidRollNo(regId) || !/^\d{10}$/.test(regPhone)) {
       setStatusMsg({
         type: 'error',
-        text: "Invalid Roll No or Phone (e.g., 22N71A6655, phone 10 digits)"
+        text: "Invalid Roll No or Phone (format: 22N71A6655, positions 3 and 6 must be letters, phone 10 digits)"
       });
       return false;
     }
@@ -1203,18 +1203,42 @@ export default function App() {
     if (!validateRegistrationDetails()) return;
 
     try {
+      const previousStudentId = (registrationEditStudent.studentId || '').trim().toUpperCase();
+      const nextStudentId = regId.trim().toUpperCase();
+      const studentIdChanged = previousStudentId !== nextStudentId;
+
+      if (studentIdChanged) {
+        const existingStudent = students.find(
+          s => (s.studentId || '').trim().toUpperCase() === nextStudentId
+        );
+
+        if (existingStudent) {
+          setStatusMsg({
+            type: 'error',
+            text: `Roll number ${nextStudentId} is already registered for ${formatRegisteredStudentLabel(existingStudent)}.`
+          });
+          return;
+        }
+      }
+
       const updatedStudent = {
         ...registrationEditStudent,
         name: regName,
-        studentId: regId.toUpperCase(),
+        studentId: nextStudentId,
         branch: regBranch,
         year: regYear,
         phone: regPhone,
         email: regEmail
       };
 
-      const saved = await performRegistration(updatedStudent, registrationEditStudent.studentId);
+      const targetDocId = studentIdChanged ? null : previousStudentId;
+      const saved = await performRegistration(updatedStudent, targetDocId);
       if (!saved) return;
+
+      if (studentIdChanged) {
+        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', previousStudentId));
+      }
+
       setRegistrationEditStudent(null);
       setRegistrationReturnView('home');
       setView('database');

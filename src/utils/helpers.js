@@ -82,6 +82,12 @@ export const formatIndiaDate = (date = new Date(), options = {}) => {
   }).format(date);
 };
 
+export const ROLL_NO_REGEX = /^\d{2}[A-Z]\d{2}[A-Z]\d{4}$/;
+
+export const isValidRollNo = (value = '') => {
+  return ROLL_NO_REGEX.test(value.trim().toUpperCase());
+};
+
 export const getIndiaHour = (date = new Date()) => {
   const hour = new Intl.DateTimeFormat('en-US', {
     timeZone: INDIA_TIME_ZONE,
