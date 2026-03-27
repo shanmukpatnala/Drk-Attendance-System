@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, User, Camera, Save, AlertCircle, Square } from 'lucide-react';
-import { isValidRollNo } from '../utils/helpers';
+import { isValidRollNo, sanitizeRollNoInput } from '../utils/helpers';
 
 export function UnidentifiedFaceModal({ isOpen, onClose, onEndSession, facePhoto, onRegister }) {
   const [name, setName] = useState('');
@@ -154,7 +154,7 @@ export function UnidentifiedFaceModal({ isOpen, onClose, onEndSession, facePhoto
                       type="text"
                       value={studentId}
                       onChange={(e) => {
-                        const val = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 10);
+                        const val = sanitizeRollNoInput(e.target.value);
                         setStudentId(val);
                         if (errors.studentId) setErrors({ ...errors, studentId: '' });
                       }}

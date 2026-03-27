@@ -5,7 +5,7 @@ import { QRCodeCanvas } from 'qrcode.react';
 
 // Firebase & utilities
 import { auth, signInAnonymously, onAuthStateChanged, serverTimestamp, collection, addDoc, db, getDocs, updateDoc, doc, getDoc, query, where, onSnapshot, orderBy, setDoc, deleteDoc } from './utils/firebase';
-import { hashPassword, safeData, getTodayDateId, compressImage, formatTime, isValidRollNo } from './utils/helpers';
+import { hashPassword, safeData, getTodayDateId, compressImage, formatTime, isValidRollNo, getDateIdsInRange } from './utils/helpers';
 import { appId, FACE_API_SCRIPT, MODEL_URL, EMAILJS_SERVICE_ID, EMAILJS_REPORT_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, SHOW_EMAIL_BUTTON, appConfig } from './app/constants';
 import { performLogin as performLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
 
@@ -34,6 +34,7 @@ const ATTENDANCE_PROCESSING_WIDTH = 320;
 
 const UNKNOWN_FACE_SIGNATURE_PRECISION = 1;
 const UNKNOWN_FACE_SKIP_COOLDOWN_MS = 5000;
+const HISTORY_START_DATE = '2026-03-20';
 
 
 
@@ -689,11 +690,18 @@ export default function App() {
     try {
       const dateId = getTodayDateId();
       const studentDocId = (student.studentId || student).toString();
+      const dailyDateRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId);
 
       // attendance_daily entry
       const dailyRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs', studentDocId);
       const snap = await getDoc(dailyRef);
       let isNewForToday = false;
+
+      await setDoc(dailyDateRef, {
+        dateId,
+        sessionEnded: '',
+        updatedAt: serverTimestamp()
+      }, { merge: true });
 
       if (!snap.exists()) {
         await setDoc(dailyRef, {
@@ -1576,15 +1584,48 @@ export default function App() {
       return;
     }
 
+    if (!isValidRollNo(normalizedRollNo)) {
+      setStatusMsg({
+        type: 'error',
+        text: 'Invalid Roll No. Use 22N71A6655, with letters in positions 3 and 6.'
+      });
+      return;
+    }
+
     setHistoryLoading(true);
     try {
       const student = students.find(
         s => (s.studentId || '').trim().toUpperCase() === normalizedRollNo
       );
-      const attendanceDailyCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily');
-      const dailySnap = await getDocs(attendanceDailyCol);
-      const sortedDateIds = dailySnap.docs
-        .map((dateDoc) => dateDoc.id)
+      const attendanceLogsQuery = query(
+        collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs'),
+        where('studentId', '==', normalizedRollNo)
+      );
+      const attendanceLogsSnap = await getDocs(attendanceLogsQuery);
+      const presentRecordsByDate = new Map();
+      const attendanceLogRows = attendanceLogsSnap.docs
+        .map((logDoc) => safeData(logDoc.data()))
+        .sort((a, b) => {
+          const dateCompare = (b.date || b.dateId || '').localeCompare(a.date || a.dateId || '');
+          if (dateCompare !== 0) return dateCompare;
+          return (b.timeIn || '').localeCompare(a.timeIn || '');
+        });
+
+      attendanceLogRows.forEach((data) => {
+        const dateId = data.date || data.dateId || '';
+        if (!dateId || presentRecordsByDate.has(dateId)) return;
+
+        presentRecordsByDate.set(dateId, {
+          dateId,
+          isPresent: true,
+          timeIn: data.timeIn || '-',
+          photo: data.facePhoto || '',
+          status: data.status || 'Present'
+        });
+      });
+
+      const rangeDateIds = getDateIdsInRange(HISTORY_START_DATE, getTodayDateId());
+      const sortedDateIds = [...new Set([...rangeDateIds, ...presentRecordsByDate.keys()])]
         .sort((a, b) => b.localeCompare(a));
 
       const recordSnaps = await Promise.all(
@@ -1597,25 +1638,36 @@ export default function App() {
         })
       );
 
-      const records = recordSnaps
-        .filter(Boolean)
-        .map(({ dateId, data }) => ({
-          dateId,
-          timeIn: data.timeIn || '-',
-          photo: data.facePhoto || '',
-          status: data.status || 'Present'
-        }))
+      const timeline = sortedDateIds
+        .map((dateId) => {
+          const matchedRecord = recordSnaps.find((record) => record?.dateId === dateId);
+          const fallbackPresentRecord = presentRecordsByDate.get(dateId) || null;
+          const data = matchedRecord?.data || fallbackPresentRecord;
+          const isPresent = Boolean(data);
+
+          return {
+            dateId,
+            isPresent,
+            timeIn: isPresent ? (data.timeIn || '-') : '-',
+            photo: isPresent ? ((data.facePhoto || data.photo || '')) : '',
+            status: isPresent ? (data.status || 'Present') : 'Absent'
+          };
+        })
         .sort((a, b) => {
           const dateCompare = b.dateId.localeCompare(a.dateId);
           if (dateCompare !== 0) return dateCompare;
           return (b.timeIn || '').localeCompare(a.timeIn || '');
         });
 
+      const presentRecords = timeline.filter((record) => record.isPresent);
+
       setHistoryStudentResult({
         studentId: normalizedRollNo,
         name: student?.name || '',
-        latestDate: records[0]?.dateId || '',
-        records
+        latestPresentDate: presentRecords[0]?.dateId || '',
+        totalPresent: presentRecords.length,
+        totalAbsent: timeline.filter((record) => !record.isPresent).length,
+        timeline
       });
       setStatusMsg(null);
     } catch (error) {

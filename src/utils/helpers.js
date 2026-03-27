@@ -84,8 +84,58 @@ export const formatIndiaDate = (date = new Date(), options = {}) => {
 
 export const ROLL_NO_REGEX = /^\d{2}[A-Z]\d{2}[A-Z]\d{4}$/;
 
+export const sanitizeRollNoInput = (value = '') => {
+  const normalized = value.toUpperCase().replace(/[^0-9A-Z]/g, '');
+  let formatted = '';
+
+  for (let i = 0; i < normalized.length && formatted.length < 10; i += 1) {
+    const char = normalized[i];
+    const nextIndex = formatted.length;
+
+    if ((nextIndex === 0 || nextIndex === 1 || nextIndex >= 6) && /\d/.test(char)) {
+      formatted += char;
+    } else if ((nextIndex === 2 || nextIndex === 5) && /[A-Z]/.test(char)) {
+      formatted += char;
+    } else if ((nextIndex === 3 || nextIndex === 4) && /\d/.test(char)) {
+      formatted += char;
+    }
+  }
+
+  return formatted;
+};
+
 export const isValidRollNo = (value = '') => {
   return ROLL_NO_REGEX.test(value.trim().toUpperCase());
+};
+
+export const formatDateIdForDisplay = (dateId = '') => {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateId)) {
+    const [year, month, day] = dateId.split('-');
+    return `${day}/${month}/${year}`;
+  }
+
+  return dateId;
+};
+
+export const getDateIdsInRange = (startDateId, endDateId) => {
+  if (!startDateId || !endDateId) return [];
+
+  const start = new Date(`${startDateId}T00:00:00`);
+  const end = new Date(`${endDateId}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return [];
+
+  const dateIds = [];
+  const cursor = new Date(start);
+
+  while (cursor <= end) {
+    const year = cursor.getFullYear();
+    const month = String(cursor.getMonth() + 1).padStart(2, '0');
+    const day = String(cursor.getDate()).padStart(2, '0');
+    dateIds.push(`${year}-${month}-${day}`);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return dateIds;
 };
 
 export const getIndiaHour = (date = new Date()) => {

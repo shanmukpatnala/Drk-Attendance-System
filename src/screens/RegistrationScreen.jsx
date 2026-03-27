@@ -1,5 +1,6 @@
 import React from 'react';
 import { UserPlus, ImageIcon, ArrowLeft, ArrowRight } from 'lucide-react';
+import { sanitizeRollNoInput } from '../utils/helpers';
 
 export function RegistrationScreen({
   regStep,
@@ -31,24 +32,7 @@ export function RegistrationScreen({
   handleSaveStudentEdits,
 }) {
   const handleRegIdChange = (e) => {
-    let value = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, '');
-    let formatted = '';
-
-    for (let i = 0; i < value.length && i < 10; i++) {
-      if ((i === 0 || i === 1) && /\d/.test(value[i])) {
-        formatted += value[i];
-      } else if (i === 2 && /[A-Z]/.test(value[i])) {
-        formatted += value[i];
-      } else if ((i === 3 || i === 4) && /\d/.test(value[i])) {
-        formatted += value[i];
-      } else if (i === 5 && /[A-Z]/.test(value[i])) {
-        formatted += value[i];
-      } else if (i >= 6 && /\d/.test(value[i])) {
-        formatted += value[i];
-      }
-    }
-
-    setRegId(formatted);
+    setRegId(sanitizeRollNoInput(e.target.value));
   };
 
   return (
