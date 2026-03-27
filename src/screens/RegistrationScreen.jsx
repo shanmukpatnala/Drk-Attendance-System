@@ -1,5 +1,5 @@
 import React from 'react';
-import { UserPlus, ImageIcon, ArrowLeft, ArrowRight } from 'lucide-react';
+import { UserPlus, ImageIcon, ArrowLeft, ArrowRight, AlertCircle, CheckCircle, RefreshCw, AlertTriangle, X } from 'lucide-react';
 import { sanitizeRollNoInput } from '../utils/helpers';
 
 export function RegistrationScreen({
@@ -30,10 +30,28 @@ export function RegistrationScreen({
   handleBack,
   registrationEditStudent,
   handleSaveStudentEdits,
+  registrationMessage,
+  clearRegistrationMessage,
 }) {
   const handleRegIdChange = (e) => {
     setRegId(sanitizeRollNoInput(e.target.value));
   };
+
+  const isUploadMode = regMode === 'upload';
+  const hasRequiredDetails = Boolean(regName && regId && regPhone && regEmail);
+  const canSaveUploadedProfile = hasRequiredDetails && Boolean(uploadedImgSrc) && !loading;
+  const MessageIcon = registrationMessage ? ({
+    error: AlertCircle,
+    warning: AlertTriangle,
+    success: CheckCircle,
+    info: RefreshCw
+  }[registrationMessage.type] || AlertCircle) : null;
+  const messageClasses = registrationMessage ? ({
+    error: 'border-red-200 bg-red-50 text-red-700',
+    warning: 'border-yellow-200 bg-yellow-50 text-yellow-700',
+    success: 'border-green-200 bg-green-50 text-green-700',
+    info: 'border-sky-200 bg-sky-50 text-sky-700'
+  }[registrationMessage.type] || 'border-slate-200 bg-slate-50 text-slate-700') : '';
 
   return (
     <div className="flex flex-col lg:flex-row gap-6 sm:gap-8">
@@ -101,18 +119,28 @@ export function RegistrationScreen({
         </h2>
 
         <div className="space-y-3">
-          <input type="text" maxLength={10} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={handleRegIdChange} placeholder="22N71A6655" disabled={regStep === 'camera'} />
-          <input type="text" className="w-full p-3 border rounded-lg" value={regName} onChange={e => setRegName(e.target.value.toUpperCase())} placeholder="Full Name" disabled={regStep === 'camera'} />
+          {registrationMessage && (
+            <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${messageClasses}`}>
+              {MessageIcon && <MessageIcon className="mt-0.5 h-4 w-4 flex-shrink-0" />}
+              <span className="flex-1">{registrationMessage.text}</span>
+              <button type="button" onClick={clearRegistrationMessage} className="flex-shrink-0">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          <input type="text" maxLength={10} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={handleRegIdChange} placeholder="22N71A6655" disabled={regStep === 'camera' && !isUploadMode} />
+          <input type="text" className="w-full p-3 border rounded-lg" value={regName} onChange={e => setRegName(e.target.value.toUpperCase())} placeholder="Full Name" disabled={regStep === 'camera' && !isUploadMode} />
           <div className="grid grid-cols-2 gap-4">
-            <select className="w-full p-3 border rounded-lg" value={regBranch} onChange={e => setRegBranch(e.target.value)} disabled={regStep === 'camera'}>
+            <select className="w-full p-3 border rounded-lg" value={regBranch} onChange={e => setRegBranch(e.target.value)} disabled={regStep === 'camera' && !isUploadMode}>
               <option>CSE</option><option>CSM</option><option>CSD</option><option>CSC</option><option>ECE</option><option>EEE</option><option>MECH</option><option>CIVIL</option>
             </select>
-            <select className="w-full p-3 border rounded-lg" value={regYear} onChange={e => setRegYear(e.target.value)} disabled={regStep === 'camera'}>
+            <select className="w-full p-3 border rounded-lg" value={regYear} onChange={e => setRegYear(e.target.value)} disabled={regStep === 'camera' && !isUploadMode}>
               <option>1st</option><option>2nd</option><option>3rd</option><option>4th</option>
             </select>
           </div>
-          <input type="tel" maxLength={10} className="w-full p-3 border rounded-lg" value={regPhone} onChange={e => setRegPhone(e.target.value.replace(/\D/g, ''))} placeholder="Phone Number" disabled={regStep === 'camera'} />
-          <input type="email" className="w-full p-3 border rounded-lg" value={regEmail} onChange={e => setRegEmail(e.target.value)} placeholder="Email" disabled={regStep === 'camera'} />
+          <input type="tel" maxLength={10} className="w-full p-3 border rounded-lg" value={regPhone} onChange={e => setRegPhone(e.target.value.replace(/\D/g, ''))} placeholder="Phone Number" disabled={regStep === 'camera' && !isUploadMode} />
+          <input type="email" className="w-full p-3 border rounded-lg" value={regEmail} onChange={e => setRegEmail(e.target.value)} placeholder="Email" disabled={regStep === 'camera' && !isUploadMode} />
 
           {registrationEditStudent && regStep === 'details' ? (
             <div className="flex gap-3">
@@ -121,6 +149,14 @@ export function RegistrationScreen({
                 {loading ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
+          ) : isUploadMode ? (
+            <button
+              onClick={() => handleCheckAndRegister()}
+              disabled={!canSaveUploadedProfile}
+              className={`w-full py-3 rounded-lg font-bold text-white ${canSaveUploadedProfile ? 'bg-green-600' : 'bg-slate-300 cursor-not-allowed'}`}
+            >
+              {loading ? 'Saving...' : 'Save Profile'}
+            </button>
           ) : regStep === 'details' ? (
             <button onClick={handleProceedToCamera} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold">Proceed to Camera <ArrowRight className="w-4 h-4 inline-block ml-2" /></button>
           ) : (

@@ -6,6 +6,7 @@ export function HistoryScreen({
   historyRollNo,
   setHistoryRollNo,
   historyStudentResult,
+  historyError,
   handleHistoryStudentSearch,
   setView,
 }) {
@@ -38,6 +39,7 @@ export function HistoryScreen({
               className="w-full rounded border p-3 font-mono"
               placeholder="22N71A6655"
             />
+            {historyError && <div className="mt-2 text-sm text-red-600">{historyError}</div>}
           </div>
 
           <div className="flex items-stretch gap-2 lg:self-end">
