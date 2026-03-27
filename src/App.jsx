@@ -149,6 +149,8 @@ export default function App() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyRollNo, setHistoryRollNo] = useState('');
   const [historyStudentResult, setHistoryStudentResult] = useState(null);
+  const [historyError, setHistoryError] = useState('');
+  const [registrationMessage, setRegistrationMessage] = useState(null);
 
   // Unidentified face modal
   const [unidentifiedFaceModal, setUnidentifiedFaceModal] = useState(null);
@@ -403,18 +405,21 @@ export default function App() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setUploadedImgSrc(reader.result);
+    reader.onload = () => {
+      setUploadedImgSrc(reader.result);
+      setRegistrationMessage(null);
+    };
     reader.readAsDataURL(file);
   };
 
   const validateRegistrationDetails = () => {
     if (!regName || !regId || !regPhone || !regEmail) {
-      setStatusMsg({ type: 'error', text: "Please fill all fields" });
+      setRegistrationMessage({ type: 'error', text: "Please fill all fields" });
       return false;
     }
 
     if (!isValidRollNo(regId) || !/^\d{10}$/.test(regPhone)) {
-      setStatusMsg({
+      setRegistrationMessage({
         type: 'error',
         text: "Invalid Roll No or Phone (format: 22N71A6655, positions 3 and 6 must be letters, phone 10 digits)"
       });
@@ -426,7 +431,7 @@ export default function App() {
 
   const handleProceedToCamera = () => {
     if (!validateRegistrationDetails()) return;
-    setStatusMsg(null);
+    setRegistrationMessage(null);
     setRegStep('camera');
   };
 
@@ -460,10 +465,10 @@ export default function App() {
 
       if (docId) {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', targetDocId), data);
-        setStatusMsg({ type: 'success', text: `Updated profile for ${data.name}` });
+        setRegistrationMessage({ type: 'success', text: `Updated profile for ${data.name}` });
       } else {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', targetDocId), data);
-        setStatusMsg({ type: 'success', text: `Student ${data.name} registered successfully` });
+        setRegistrationMessage({ type: 'success', text: `Student ${data.name} registered successfully` });
       }
       // reset form
       setRegName('');
@@ -476,7 +481,7 @@ export default function App() {
       return true;
     } catch (err) {
       console.error(err);
-      setStatusMsg({ type: 'error', text: "Database error" });
+      setRegistrationMessage({ type: 'error', text: "Database error" });
       return false;
     } finally {
       setLoading(false);
@@ -576,18 +581,19 @@ export default function App() {
 
     if (regMode === 'live') {
       if (!videoRef.current || videoRef.current.readyState < 2) {
-        setStatusMsg({ type: 'warning', text: "Camera warming up..." });
+        setRegistrationMessage({ type: 'warning', text: "Camera warming up..." });
         return;
       }
       inputSource = videoRef.current;
     } else {
       if (!uploadedImgSrc || !imgRef.current) {
-        setStatusMsg({ type: 'error', text: "Please upload a photo" });
+        setRegistrationMessage({ type: 'error', text: "Please upload a photo" });
         return;
       }
       inputSource = imgRef.current;
     }
 
+    setRegistrationMessage(null);
     setLoading(true);
 
     try {
@@ -600,7 +606,7 @@ export default function App() {
         .withFaceDescriptor();
 
       if (!detections) {
-        setStatusMsg({ type: 'error', text: "No face detected. Try again." });
+        setRegistrationMessage({ type: 'error', text: "No face detected. Try again." });
         setLoading(false);
         return;
       }
@@ -626,7 +632,7 @@ export default function App() {
         // Only reject if distance is very low (close match)
         if (best.label !== 'unknown' && best.distance < 0.5) {
           const existingFaceStudent = students.find(s => s.studentId === best.label);
-          setStatusMsg({
+          setRegistrationMessage({
             type: 'error',
             text: `This face is already registered as ${formatRegisteredStudentLabel(existingFaceStudent, best.label)}. Duplicate faces are not allowed.`
           });
@@ -653,7 +659,7 @@ export default function App() {
         s => s.studentId?.toLowerCase() === regId.toLowerCase()
       );
       if (existingStudent && !dataDocId) {
-        setStatusMsg({
+        setRegistrationMessage({
           type: 'error',
           text: `Roll number ${existingStudent.studentId} is already registered for ${formatRegisteredStudentLabel(existingStudent)}.`
         });
@@ -664,7 +670,7 @@ export default function App() {
       await performRegistration(studentData, dataDocId || null);
     } catch (err) {
       console.error(err);
-      setStatusMsg({ type: 'error', text: "Detection failed. Try again." });
+      setRegistrationMessage({ type: 'error', text: "Detection failed. Try again." });
       setLoading(false);
     }
   };
@@ -1166,6 +1172,7 @@ export default function App() {
     setNewUserConfirmPass('');
 
     setStatusMsg(null);
+    setRegistrationMessage(null);
   };
 
   const navigateToView = (nextView) => {
@@ -1215,7 +1222,7 @@ export default function App() {
         );
 
         if (existingStudent) {
-          setStatusMsg({
+          setRegistrationMessage({
             type: 'error',
             text: `Roll number ${nextStudentId} is already registered for ${formatRegisteredStudentLabel(existingStudent)}.`
           });
@@ -1246,7 +1253,7 @@ export default function App() {
       setView('database');
     } catch (err) {
       console.error(err);
-      setStatusMsg({ type: 'error', text: 'Failed to update student details' });
+      setRegistrationMessage({ type: 'error', text: 'Failed to update student details' });
     }
   };
 
@@ -1580,23 +1587,31 @@ export default function App() {
     const normalizedRollNo = historyRollNo.trim().toUpperCase();
 
     if (!normalizedRollNo) {
-      setStatusMsg({ type: 'error', text: 'Enter roll number' });
+      setHistoryStudentResult(null);
+      setHistoryError('Enter roll number');
       return;
     }
 
     if (!isValidRollNo(normalizedRollNo)) {
-      setStatusMsg({
-        type: 'error',
-        text: 'Invalid Roll No. Use 22N71A6655, with letters in positions 3 and 6.'
-      });
+      setHistoryStudentResult(null);
+      setHistoryError('Invalid Roll No. Use 22N71A6655, with letters in positions 3 and 6.');
       return;
     }
 
+    setHistoryError('');
     setHistoryLoading(true);
     try {
       const student = students.find(
         s => (s.studentId || '').trim().toUpperCase() === normalizedRollNo
       );
+
+      if (!student) {
+        setHistoryStudentResult(null);
+        setHistoryError('Student not found');
+        setHistoryLoading(false);
+        return;
+      }
+
       const attendanceLogsQuery = query(
         collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs'),
         where('studentId', '==', normalizedRollNo)
@@ -1669,11 +1684,11 @@ export default function App() {
         totalAbsent: timeline.filter((record) => !record.isPresent).length,
         timeline
       });
-      setStatusMsg(null);
+      setHistoryError('');
     } catch (error) {
       console.error('handleHistoryStudentSearch error', error);
       setHistoryStudentResult(null);
-      setStatusMsg({ type: 'error', text: 'Failed to check student history' });
+      setHistoryError('Failed to check student history');
     }
     setHistoryLoading(false);
   };
@@ -2058,7 +2073,7 @@ export default function App() {
   // ---------- LOGGED-IN VIEW ----------
   return (
     <div className="app-shell min-h-screen bg-slate-50 pb-8">
-      <Message statusMsg={statusMsg} setStatusMsg={setStatusMsg} />
+      {view !== 'history' && view !== 'register' && <Message statusMsg={statusMsg} setStatusMsg={setStatusMsg} />}
       
       {/* MODALS */}
       <SendReportModal showModal={showSendResultModal} result={sendReportResult} onClose={() => setShowSendResultModal(false)} />
@@ -2098,19 +2113,43 @@ export default function App() {
             regStep={regStep}
             setRegStep={setRegStep}
             regMode={regMode}
-            setRegMode={setRegMode}
+            setRegMode={(mode) => {
+              setRegMode(mode);
+              setRegistrationMessage(null);
+              if (mode === 'upload') {
+                setRegStep('details');
+              }
+            }}
             regName={regName}
-            setRegName={setRegName}
+            setRegName={(value) => {
+              setRegName(value);
+              if (registrationMessage) setRegistrationMessage(null);
+            }}
             regId={regId}
-            setRegId={setRegId}
+            setRegId={(value) => {
+              setRegId(value);
+              if (registrationMessage) setRegistrationMessage(null);
+            }}
             regBranch={regBranch}
-            setRegBranch={setRegBranch}
+            setRegBranch={(value) => {
+              setRegBranch(value);
+              if (registrationMessage) setRegistrationMessage(null);
+            }}
             regYear={regYear}
-            setRegYear={setRegYear}
+            setRegYear={(value) => {
+              setRegYear(value);
+              if (registrationMessage) setRegistrationMessage(null);
+            }}
             regPhone={regPhone}
-            setRegPhone={setRegPhone}
+            setRegPhone={(value) => {
+              setRegPhone(value);
+              if (registrationMessage) setRegistrationMessage(null);
+            }}
             regEmail={regEmail}
-            setRegEmail={setRegEmail}
+            setRegEmail={(value) => {
+              setRegEmail(value);
+              if (registrationMessage) setRegistrationMessage(null);
+            }}
             uploadedImgSrc={uploadedImgSrc}
             videoRef={videoRef}
             imgRef={imgRef}
@@ -2122,6 +2161,8 @@ export default function App() {
             handleBack={handleRegistrationBack}
             registrationEditStudent={registrationEditStudent}
             handleSaveStudentEdits={handleSaveStudentEdits}
+            registrationMessage={registrationMessage}
+            clearRegistrationMessage={() => setRegistrationMessage(null)}
           />
         )}
 
@@ -2185,8 +2226,12 @@ export default function App() {
           <HistoryScreen
             historyLoading={historyLoading}
             historyRollNo={historyRollNo}
-            setHistoryRollNo={setHistoryRollNo}
+            setHistoryRollNo={(value) => {
+              setHistoryRollNo(value);
+              if (historyError) setHistoryError('');
+            }}
             historyStudentResult={historyStudentResult}
+            historyError={historyError}
             handleHistoryStudentSearch={handleHistoryStudentSearch}
             setView={navigateToView}
           />
