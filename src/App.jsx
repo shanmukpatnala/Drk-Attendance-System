@@ -145,10 +145,7 @@ export default function App() {
   const [showSendResultModal, setShowSendResultModal] = useState(false);
 
   // history: list of dates + counts
-  const [historyList, setHistoryList] = useState([]); // { dateId, count }
-  const [historyDetail, setHistoryDetail] = useState({ dateId: '', rows: [] });
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyDate, setHistoryDate] = useState(getTodayDateId()); // selected date in history view
   const [historyRollNo, setHistoryRollNo] = useState('');
   const [historyStudentResult, setHistoryStudentResult] = useState(null);
 
@@ -1129,9 +1126,6 @@ export default function App() {
     setReportYear('All');
     setReportData(null);
 
-    setHistoryDate(today);
-    setHistoryList([]);
-    setHistoryDetail({ dateId: '', rows: [] });
     setHistoryLoading(false);
     setHistoryRollNo('');
     setHistoryStudentResult(null);
@@ -1572,53 +1566,13 @@ export default function App() {
   };
 
   // -------------------------------------------------------------------
-  // History: fetch list of dates and counts (student attendance)
+  // History: fetch complete student attendance history
   // -------------------------------------------------------------------
-  const fetchHistoryList = async () => {
-    setHistoryLoading(true);
-    try {
-      const rootCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily');
-      const snap = await getDocs(rootCol);
-      const list = [];
-      for (const docSnap of snap.docs) {
-        const dateId = docSnap.id;
-        // get logs subcollection count
-        const logsCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs');
-        const logsSnap = await getDocs(logsCol);
-        list.push({ dateId, count: logsSnap.size });
-      }
-      // sort descending by date (string ISO yyyy-mm-dd sorts naturally)
-      list.sort((a, b) => b.dateId.localeCompare(a.dateId));
-      setHistoryList(list);
-    } catch (e) {
-      console.error('fetchHistoryList error', e);
-      setHistoryList([]);
-    }
-    setHistoryLoading(false);
-  };
-
-  const fetchHistoryByDate = async (dateId) => {
-    setHistoryLoading(true);
-    try {
-      const logsCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs');
-      const snap = await getDocs(logsCol);
-      let rows = snap.docs.map(d => ({ id: d.id, ...safeData(d.data()) }));
-
-      rows.sort((a, b) => (a.timeIn || '').localeCompare(b.timeIn || ''));
-      setHistoryDetail({ dateId, rows });
-    } catch (e) {
-      console.error('fetchHistoryByDate error', e);
-      setHistoryDetail({ dateId, rows: [] });
-    }
-    setHistoryLoading(false);
-  };
-
   const handleHistoryStudentSearch = async () => {
-    const dateId = historyDate;
     const normalizedRollNo = historyRollNo.trim().toUpperCase();
 
-    if (!dateId || !normalizedRollNo) {
-      setStatusMsg({ type: 'error', text: 'Select date and enter roll number' });
+    if (!normalizedRollNo) {
+      setStatusMsg({ type: 'error', text: 'Enter roll number' });
       return;
     }
 
@@ -1627,29 +1581,42 @@ export default function App() {
       const student = students.find(
         s => (s.studentId || '').trim().toUpperCase() === normalizedRollNo
       );
-      const logRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs', normalizedRollNo);
-      const logSnap = await getDoc(logRef);
+      const attendanceDailyCol = collection(db, 'artifacts', appId, 'public', 'data', 'attendance_daily');
+      const dailySnap = await getDocs(attendanceDailyCol);
+      const sortedDateIds = dailySnap.docs
+        .map((dateDoc) => dateDoc.id)
+        .sort((a, b) => b.localeCompare(a));
 
-      if (logSnap.exists()) {
-        const data = safeData(logSnap.data());
-        setHistoryStudentResult({
+      const recordSnaps = await Promise.all(
+        sortedDateIds.map(async (dateId) => {
+          const logRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs', normalizedRollNo);
+          const logSnap = await getDoc(logRef);
+          return logSnap.exists()
+            ? { dateId, data: safeData(logSnap.data()) }
+            : null;
+        })
+      );
+
+      const records = recordSnaps
+        .filter(Boolean)
+        .map(({ dateId, data }) => ({
           dateId,
-          studentId: normalizedRollNo,
-          name: data.name || student?.name || '',
-          status: data.status || 'Present',
           timeIn: data.timeIn || '-',
-          photo: data.facePhoto || ''
+          photo: data.facePhoto || '',
+          status: data.status || 'Present'
+        }))
+        .sort((a, b) => {
+          const dateCompare = b.dateId.localeCompare(a.dateId);
+          if (dateCompare !== 0) return dateCompare;
+          return (b.timeIn || '').localeCompare(a.timeIn || '');
         });
-      } else {
-        setHistoryStudentResult({
-          dateId,
-          studentId: normalizedRollNo,
-          name: student?.name || '',
-          status: 'Absent',
-          timeIn: '-',
-          photo: ''
-        });
-      }
+
+      setHistoryStudentResult({
+        studentId: normalizedRollNo,
+        name: student?.name || '',
+        latestDate: records[0]?.dateId || '',
+        records
+      });
       setStatusMsg(null);
     } catch (error) {
       console.error('handleHistoryStudentSearch error', error);
@@ -2164,18 +2131,12 @@ export default function App() {
         {/* HISTORY (student attendance by date) */}
         {view === 'history' && (
           <HistoryScreen
-            historyDate={historyDate}
-            setHistoryDate={setHistoryDate}
             historyLoading={historyLoading}
-            historyList={historyList}
-            historyDetail={historyDetail}
             historyRollNo={historyRollNo}
             setHistoryRollNo={setHistoryRollNo}
             historyStudentResult={historyStudentResult}
-            fetchHistoryByDate={fetchHistoryByDate}
             handleHistoryStudentSearch={handleHistoryStudentSearch}
             setView={navigateToView}
-            fetchHistoryList={fetchHistoryList}
           />
         )}
 
@@ -2227,6 +2188,10 @@ export default function App() {
           />
         )}
       </main>
+
+      <div className="pointer-events-none px-4 pb-4 text-center text-xs text-slate-400 select-none">
+        Developed by <span className="font-semibold text-slate-500">Shanmuk Patnala</span> | 22N71A6655 | CSE-AIML
+      </div>
 
       {/* MODALS */}
       {/* Send report result modal */}
