@@ -1,10 +1,8 @@
-import React from 'react';
-import { UserPlus, ImageIcon, ArrowLeft, ArrowRight, AlertCircle, CheckCircle, RefreshCw, AlertTriangle, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { UserPlus, ImageIcon, ArrowLeft, AlertCircle, CheckCircle, RefreshCw, AlertTriangle, X, Camera } from 'lucide-react';
 import { sanitizeRollNoInput } from '../utils/helpers';
 
 export function RegistrationScreen({
-  regStep,
-  setRegStep,
   regMode,
   setRegMode,
   regName,
@@ -23,7 +21,6 @@ export function RegistrationScreen({
   videoRef,
   imgRef,
   loading,
-  handleProceedToCamera,
   handleCheckAndRegister,
   handleFileChange,
   toggleCameraFacing,
@@ -31,15 +28,21 @@ export function RegistrationScreen({
   registrationEditStudent,
   handleSaveStudentEdits,
   registrationMessage,
+  duplicateRollNoMessage,
   clearRegistrationMessage,
 }) {
+  const uploadInputRef = useRef(null);
+  const galleryPendingRef = useRef(false);
+  const [galleryPickerActive, setGalleryPickerActive] = useState(false);
+
   const handleRegIdChange = (e) => {
     setRegId(sanitizeRollNoInput(e.target.value));
   };
 
-  const isUploadMode = regMode === 'upload';
   const hasRequiredDetails = Boolean(regName && regId && regPhone && regEmail);
-  const canSaveUploadedProfile = hasRequiredDetails && Boolean(uploadedImgSrc) && !loading;
+  const hasSelectedSource = regMode === 'live' || regMode === 'upload';
+  const isUploadMode = regMode === 'upload';
+  const canSaveProfile = hasRequiredDetails && hasSelectedSource && (isUploadMode ? Boolean(uploadedImgSrc) : true) && !loading;
   const MessageIcon = registrationMessage ? ({
     error: AlertCircle,
     warning: AlertTriangle,
@@ -53,6 +56,41 @@ export function RegistrationScreen({
     info: 'border-sky-200 bg-sky-50 text-sky-700'
   }[registrationMessage.type] || 'border-slate-200 bg-slate-50 text-slate-700') : '';
 
+  useEffect(() => {
+    if (regMode === 'upload' && !uploadedImgSrc && uploadInputRef.current) {
+      galleryPendingRef.current = true;
+      setGalleryPickerActive(true);
+      uploadInputRef.current.click();
+    }
+  }, [regMode, uploadedImgSrc]);
+
+  useEffect(() => {
+    if (!galleryPickerActive) return undefined;
+
+    const handleWindowFocus = () => {
+      window.setTimeout(() => {
+        if (!galleryPendingRef.current) return;
+
+        const selectedFileCount = uploadInputRef.current?.files?.length || 0;
+        if (selectedFileCount === 0) {
+          setRegMode('none');
+        }
+
+        galleryPendingRef.current = false;
+        setGalleryPickerActive(false);
+      }, 250);
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    return () => window.removeEventListener('focus', handleWindowFocus);
+  }, [galleryPickerActive, setRegMode]);
+
+  const handleGalleryFileChange = (event) => {
+    galleryPendingRef.current = false;
+    setGalleryPickerActive(false);
+    handleFileChange(event);
+  };
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 sm:gap-8">
       <div className="lg:w-1/2 space-y-4">
@@ -65,47 +103,64 @@ export function RegistrationScreen({
           Back
         </button>
 
-        <div className="flex bg-slate-200 p-1 rounded-lg">
-          <button
-            onClick={() => setRegMode('live')}
-            className={`flex-1 py-2 rounded-md ${regMode === 'live' ? 'bg-white text-red-700 shadow' : 'text-slate-500'}`}
-          >
-            Live Camera
-          </button>
-          <button
-            onClick={() => setRegMode('upload')}
-            className={`flex-1 py-2 rounded-md ${regMode === 'upload' ? 'bg-white text-red-700 shadow' : 'text-slate-500'}`}
-          >
-            Upload Photo
-          </button>
-        </div>
-
         <div className="relative bg-slate-900 rounded-xl overflow-hidden shadow-lg aspect-video border-4 border-slate-200 flex items-center justify-center">
           {regMode === 'live' ? (
             <>
               <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
-              {regStep === 'details' && (
-                <div className="absolute inset-0 bg-slate-100/90 flex flex-col items-center justify-center z-10">
-                  <UserPlus className="w-10 h-10 text-slate-400 mb-2" />
-                  <p className="text-slate-600 font-semibold">Enter Details First</p>
-                </div>
-              )}
-              {regStep === 'camera' && (
-                <button onClick={toggleCameraFacing} className="absolute top-3 right-3 bg-black/40 text-white text-xs px-3 py-1 rounded-full">
-                  Switch Camera
-                </button>
-              )}
+              <button onClick={toggleCameraFacing} className="absolute top-3 right-3 bg-black/40 text-white text-xs px-3 py-1 rounded-full">
+                Switch Camera
+              </button>
             </>
-          ) : (
+          ) : regMode === 'upload' ? (
             <div className="w-full h-full flex items-center justify-center bg-slate-800">
               {uploadedImgSrc ? (
                 <img ref={imgRef} src={uploadedImgSrc} className="h-full object-contain" alt="Preview" />
               ) : (
-                <label className="cursor-pointer flex flex-col items-center justify-center h-full w-full hover:bg-slate-700 transition-colors">
+                <div className="flex flex-col items-center justify-center h-full w-full">
                   <ImageIcon className="w-10 h-10 mb-2 text-slate-400" />
-                  <span className="text-xs text-slate-400 font-semibold">Click to Upload Image</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
-                </label>
+                  <span className="text-xs text-slate-400 font-semibold">Opening gallery...</span>
+                  <input ref={uploadInputRef} type="file" accept="image/*" className="hidden" onChange={handleGalleryFileChange} />
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center bg-slate-50 p-6 text-center">
+              {!hasRequiredDetails ? (
+                <>
+                  <UserPlus className="mb-3 h-12 w-12 text-slate-400" />
+                  <p className="text-lg font-semibold text-slate-700">Fill all details first</p>
+                  <p className="mt-2 text-sm text-slate-500">After that, choose how you want to add the face photo.</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-lg font-semibold text-slate-800">Choose Photo Source</p>
+                  <p className="mt-2 text-sm text-slate-500">Select one option to continue registration.</p>
+                  <div className="mt-6 grid w-full max-w-sm gap-4 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setRegMode('live')}
+                      className="flex items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 font-semibold text-slate-800 shadow-sm transition hover:border-red-300 hover:text-red-700"
+                    >
+                      <Camera className="h-5 w-5" />
+                      Camera
+                    </button>
+                    <button
+                      type="button"
+                      className="flex cursor-pointer items-center justify-center gap-3 rounded-2xl border border-slate-200 bg-white px-5 py-4 font-semibold text-slate-800 shadow-sm transition hover:border-red-300 hover:text-red-700"
+                      onClick={() => setRegMode('upload')}
+                    >
+                      <ImageIcon className="h-5 w-5" />
+                      Gallery
+                    </button>
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleGalleryFileChange}
+                    />
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -129,41 +184,46 @@ export function RegistrationScreen({
             </div>
           )}
 
-          <input type="text" maxLength={10} className="w-full p-3 border rounded-lg uppercase" value={regId} onChange={handleRegIdChange} placeholder="22N71A6655" disabled={regStep === 'camera' && !isUploadMode} />
-          <input type="text" className="w-full p-3 border rounded-lg" value={regName} onChange={e => setRegName(e.target.value.toUpperCase())} placeholder="Full Name" disabled={regStep === 'camera' && !isUploadMode} />
+          <div>
+            <input
+              type="text"
+              maxLength={10}
+              className={`w-full rounded-lg border p-3 uppercase ${duplicateRollNoMessage ? 'border-red-300 bg-red-50/40' : ''}`}
+              value={regId}
+              onChange={handleRegIdChange}
+              placeholder="22N71A6655"
+            />
+            {duplicateRollNoMessage && (
+              <p className="mt-1 text-sm text-red-600">{duplicateRollNoMessage}</p>
+            )}
+          </div>
+          <input type="text" className="w-full p-3 border rounded-lg" value={regName} onChange={e => setRegName(e.target.value.toUpperCase())} placeholder="Full Name" />
           <div className="grid grid-cols-2 gap-4">
-            <select className="w-full p-3 border rounded-lg" value={regBranch} onChange={e => setRegBranch(e.target.value)} disabled={regStep === 'camera' && !isUploadMode}>
+            <select className="w-full p-3 border rounded-lg" value={regBranch} onChange={e => setRegBranch(e.target.value)}>
               <option>CSE</option><option>CSM</option><option>CSD</option><option>CSC</option><option>ECE</option><option>EEE</option><option>MECH</option><option>CIVIL</option>
             </select>
-            <select className="w-full p-3 border rounded-lg" value={regYear} onChange={e => setRegYear(e.target.value)} disabled={regStep === 'camera' && !isUploadMode}>
+            <select className="w-full p-3 border rounded-lg" value={regYear} onChange={e => setRegYear(e.target.value)}>
               <option>1st</option><option>2nd</option><option>3rd</option><option>4th</option>
             </select>
           </div>
-          <input type="tel" maxLength={10} className="w-full p-3 border rounded-lg" value={regPhone} onChange={e => setRegPhone(e.target.value.replace(/\D/g, ''))} placeholder="Phone Number" disabled={regStep === 'camera' && !isUploadMode} />
-          <input type="email" className="w-full p-3 border rounded-lg" value={regEmail} onChange={e => setRegEmail(e.target.value)} placeholder="Email" disabled={regStep === 'camera' && !isUploadMode} />
+          <input type="tel" maxLength={10} className="w-full p-3 border rounded-lg" value={regPhone} onChange={e => setRegPhone(e.target.value.replace(/\D/g, ''))} placeholder="Phone Number" />
+          <input type="email" className="w-full p-3 border rounded-lg" value={regEmail} onChange={e => setRegEmail(e.target.value)} placeholder="Email" />
 
-          {registrationEditStudent && regStep === 'details' ? (
+          {registrationEditStudent ? (
             <div className="flex gap-3">
               <button onClick={handleBack} className="flex-1 border py-3 rounded-lg">Cancel</button>
               <button onClick={handleSaveStudentEdits} disabled={loading} className="flex-1 bg-green-600 text-white py-3 rounded-lg font-bold">
                 {loading ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
-          ) : isUploadMode ? (
+          ) : (
             <button
               onClick={() => handleCheckAndRegister()}
-              disabled={!canSaveUploadedProfile}
-              className={`w-full py-3 rounded-lg font-bold text-white ${canSaveUploadedProfile ? 'bg-green-600' : 'bg-slate-300 cursor-not-allowed'}`}
+              disabled={!canSaveProfile}
+              className={`w-full py-3 rounded-lg font-bold text-white ${canSaveProfile ? 'bg-green-600' : 'bg-slate-300 cursor-not-allowed'}`}
             >
               {loading ? 'Saving...' : 'Save Profile'}
             </button>
-          ) : regStep === 'details' ? (
-            <button onClick={handleProceedToCamera} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold">Proceed to Camera <ArrowRight className="w-4 h-4 inline-block ml-2" /></button>
-          ) : (
-            <div className="flex gap-3">
-              <button onClick={() => setRegStep('details')} className="flex-1 border py-2 rounded-lg">Edit Details</button>
-              <button onClick={() => handleCheckAndRegister()} disabled={loading} className="flex-1 bg-green-600 text-white py-2 rounded-lg">{loading ? 'Saving...' : 'Save Profile'}</button>
-            </div>
           )}
         </div>
       </div>

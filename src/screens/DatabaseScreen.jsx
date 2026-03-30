@@ -35,8 +35,15 @@ export function DatabaseScreen({
         {searchResult && searchResult !== 'not-found' && (
           <div className="mt-4 bg-white rounded-xl overflow-hidden border shadow">
             <div className="grid grid-cols-1 md:grid-cols-3">
-              <div className="md:col-span-1 bg-slate-100 p-3 flex items-center justify-center">
-                {searchResult.photo ? <img src={searchResult.photo} className="w-full h-48 object-cover" alt={searchResult.name} /> : 'No Photo'}
+              <div className="md:col-span-1 flex items-center justify-center bg-slate-100 p-3">
+                {searchResult.photo ? (
+                  <img
+                    src={searchResult.photo}
+                    className="h-56 w-full rounded-lg border border-slate-200 bg-white object-contain p-2"
+                    alt={searchResult.name}
+                    loading="lazy"
+                  />
+                ) : 'No Photo'}
               </div>
               <div className="p-4 md:col-span-2">
                 <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start">
