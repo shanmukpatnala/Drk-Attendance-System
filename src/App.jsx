@@ -13,7 +13,7 @@ import { performLogin as performLoginHandler, handleSendResetLink as handleSendR
 import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, StudentBrowserScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
 
 // Modal components
-import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal } from './modals';
+import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal, AlreadyPresentModal } from './modals';
 
 // UI components
 import { Header, BottomNav, Message } from './components';
@@ -24,7 +24,12 @@ const CAMERA_CONSTRAINTS = {
   frameRate: { ideal: 24, max: 30 }
 };
 
-const ATTENDANCE_MATCH_THRESHOLD = 0.6;
+const ATTENDANCE_MATCH_THRESHOLD = 0.42;
+const ATTENDANCE_AMBIGUITY_GAP = 0.035;
+const ATTENDANCE_RECHECK_THRESHOLD = 0.5;
+const ATTENDANCE_RECHECK_AMBIGUITY_GAP = 0.02;
+const UNKNOWN_FACE_CONFIRMATION_COUNT = 3;
+const ALREADY_PRESENT_POPUP_COOLDOWN_MS = 8000;
 const ATTENDANCE_DETECTOR_OPTIONS = {
   inputSize: 128,
   scoreThreshold: 0.3
@@ -74,7 +79,7 @@ export default function App() {
 
   // Registration
   const [regStep, setRegStep] = useState('details'); // details | camera
-  const [regMode, setRegMode] = useState('live'); // live | upload
+  const [regMode, setRegMode] = useState('none'); // none | live | upload
   const [regName, setRegName] = useState('');
   const [regId, setRegId] = useState('');
   const [regBranch, setRegBranch] = useState('CSE');
@@ -156,6 +161,8 @@ export default function App() {
   const [unidentifiedFaceModal, setUnidentifiedFaceModal] = useState(null);
   const unidentifiedFaceModalRef = useRef(null);
   const unknownFaceSkipUntilRef = useRef(0);
+  const [alreadyPresentModal, setAlreadyPresentModal] = useState(null);
+  const alreadyPresentPopupRef = useRef(new Map());
 
   // -------------------------------------------------------------------
   // INIT: Firebase anonymous auth + face-api script
@@ -338,7 +345,7 @@ export default function App() {
       return;
     }
 
-    const shouldStartRegisterCamera = view === 'register' && regStep === 'camera' && regMode === 'live';
+    const shouldStartRegisterCamera = view === 'register' && regMode === 'live';
     const shouldStartAttendanceCamera = view === 'attendance' && attStep === 'camera';
 
     if (shouldStartRegisterCamera || shouldStartAttendanceCamera) {
@@ -347,7 +354,7 @@ export default function App() {
       stopVideo();
     }
     // eslint-disable-next-line
-  }, [view, modelsLoaded, attStep, regStep, regMode, appUser, cameraFacing]);
+  }, [view, modelsLoaded, attStep, regMode, appUser, cameraFacing]);
 
   
 
@@ -427,12 +434,6 @@ export default function App() {
     }
 
     return true;
-  };
-
-  const handleProceedToCamera = () => {
-    if (!validateRegistrationDetails()) return;
-    setRegistrationMessage(null);
-    setRegStep('camera');
   };
 
   const formatRegisteredStudentLabel = (student, fallbackId = '') => {
@@ -534,11 +535,49 @@ export default function App() {
     return canvas.toDataURL('image/jpeg', 0.82);
   };
 
-  const promptUnknownFaceRegistration = (faceDescription) => {
+  const promptUnknownFaceRegistration = async (faceDescription) => {
     if (Date.now() < unknownFaceSkipUntilRef.current) return false;
 
     const signature = buildUnknownFaceSignature(faceDescription?.descriptor);
     if (!signature || promptedUnidentifiedRef.current.has(signature)) return false;
+
+    const seenCount = (unknownFaceCandidateCountsRef.current.get(signature) || 0) + 1;
+    unknownFaceCandidateCountsRef.current.set(signature, seenCount);
+    if (seenCount < UNKNOWN_FACE_CONFIRMATION_COUNT) return false;
+
+    const recheckedMatch = findBestAttendanceMatch(
+      faceDescription?.descriptor,
+      ATTENDANCE_RECHECK_THRESHOLD,
+      ATTENDANCE_RECHECK_AMBIGUITY_GAP
+    );
+
+    if (recheckedMatch?.studentId) {
+      const matchedStudent = studentMapRef.current?.get(recheckedMatch.studentId);
+      if (matchedStudent && matchedStudent.year !== 'Passed Out') {
+        const recheckedPhoto = captureFaceFromDetection(faceDescription);
+        unknownFaceCandidateCountsRef.current.delete(signature);
+
+        if (markedTodayRef.current.has(recheckedMatch.studentId) || localMarkedRef.current.has(recheckedMatch.studentId)) {
+          openAlreadyPresentModal(matchedStudent, recheckedPhoto);
+          return true;
+        }
+
+        if (recheckedPhoto) {
+          localMarkedRef.current.add(recheckedMatch.studentId);
+          setMarkedToday(prev => {
+            const next = new Set(prev);
+            next.add(matchedStudent.studentId);
+            return next;
+          });
+          logAttendance(matchedStudent, 'Present', recheckedPhoto);
+          setStatusMsg({
+            type: 'success',
+            text: `${matchedStudent.name || matchedStudent.studentId} recognized after re-check`
+          });
+          return true;
+        }
+      }
+    }
 
     const facePhoto = captureFaceFromDetection(faceDescription);
     if (!facePhoto) return false;
@@ -569,12 +608,45 @@ export default function App() {
     if (unidentifiedFaceModalRef.current?.signature) {
       promptedUnidentifiedRef.current.delete(unidentifiedFaceModalRef.current.signature);
     }
+    unknownFaceCandidateCountsRef.current.clear();
     closeUnidentifiedFaceModal();
+  };
+
+  const openAlreadyPresentModal = (student, facePhoto = '') => {
+    if (!student?.studentId) return;
+
+    const now = Date.now();
+    const lastShownAt = alreadyPresentPopupRef.current.get(student.studentId) || 0;
+    if ((now - lastShownAt) < ALREADY_PRESENT_POPUP_COOLDOWN_MS) return;
+
+    alreadyPresentPopupRef.current.set(student.studentId, now);
+
+    const todayId = getTodayDateId();
+    const todayLog = attendanceLogs.find(log =>
+      (log.studentId || '') === student.studentId
+      && (log.date || '') === todayId
+      && (log.status || '') === 'Present'
+    );
+
+    setAlreadyPresentModal({
+      name: student.name || '',
+      studentId: student.studentId || '',
+      branch: student.branch || '',
+      year: student.year || '',
+      facePhoto: facePhoto || todayLog?.facePhoto || student.photo || '',
+      timeIn: todayLog?.timeIn || '',
+      dateId: todayId
+    });
   };
 
   // check and register: uses face-api only when regMode==='live' and regStep==='camera'
   const handleCheckAndRegister = async (dataDocId = null) => {
     if (!firebaseUser) return;
+    if (!validateRegistrationDetails()) return;
+    if (regMode !== 'live' && regMode !== 'upload') {
+      setRegistrationMessage({ type: 'warning', text: 'Choose Camera or Gallery after filling the details.' });
+      return;
+    }
 
     const faceapi = window.faceapi;
     let inputSource;
@@ -752,10 +824,143 @@ export default function App() {
   };
 
 
-  // Ref to cache face matcher between scans (avoid recreating)
+  // Ref to cache normalized descriptors between scans.
   const faceMatcherRef = useRef(null);
   const studentMapRef = useRef(null);
+  const studentDescriptorSignatureRef = useRef('');
+  const runtimeDescriptorMapRef = useRef(new Map());
+  const unknownFaceCandidateCountsRef = useRef(new Map());
   const detectionStatsRef = useRef({ checked: 0 });
+
+  const buildStudentDescriptorSignature = (studentList = []) =>
+    studentList
+      .filter(student => student?.studentId)
+      .map(student => {
+        const descriptorValues = student?.descriptor && typeof student.descriptor.length === 'number'
+          ? Array.from(student.descriptor).slice(0, 6)
+          : null;
+        const descriptor = descriptorValues
+          ? descriptorValues.map(value => Number(value).toFixed(3)).join(',')
+          : 'none';
+        return `${student.studentId}:${descriptor}`;
+      })
+      .sort()
+      .join('|');
+
+  const getDistanceBetweenDescriptors = (sourceDescriptor, targetDescriptor) => {
+    if (!sourceDescriptor || !targetDescriptor || sourceDescriptor.length !== targetDescriptor.length) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    let sum = 0;
+    for (let index = 0; index < sourceDescriptor.length; index += 1) {
+      const diff = sourceDescriptor[index] - targetDescriptor[index];
+      sum += diff * diff;
+    }
+
+    return Math.sqrt(sum);
+  };
+
+  const findBestAttendanceMatch = (
+    descriptor,
+    threshold = ATTENDANCE_MATCH_THRESHOLD,
+    ambiguityGap = ATTENDANCE_AMBIGUITY_GAP
+  ) => {
+    const registeredDescriptors = faceMatcherRef.current || [];
+    if (!registeredDescriptors.length || !descriptor) return null;
+
+    const rankedMatches = registeredDescriptors
+      .map(student => ({
+        studentId: student.studentId,
+        distance: getDistanceBetweenDescriptors(descriptor, student.descriptor)
+      }))
+      .filter(match => Number.isFinite(match.distance))
+      .sort((left, right) => left.distance - right.distance);
+
+    if (!rankedMatches.length) return null;
+
+    const bestMatch = rankedMatches[0];
+    const secondBestMatch = rankedMatches[1];
+    const isTooFar = bestMatch.distance > threshold;
+    const isAmbiguous = secondBestMatch && (secondBestMatch.distance - bestMatch.distance) < ambiguityGap;
+
+    if (isTooFar || isAmbiguous) return null;
+
+    return bestMatch;
+  };
+
+  const resolveAttendanceMatch = (descriptor) =>
+    findBestAttendanceMatch(descriptor, ATTENDANCE_MATCH_THRESHOLD, ATTENDANCE_AMBIGUITY_GAP);
+
+  const loadDescriptorFromImage = async (imageSrc) => {
+    if (!imageSrc || !window.faceapi) return null;
+
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.src = imageSrc;
+
+    await new Promise((resolve, reject) => {
+      image.onload = resolve;
+      image.onerror = reject;
+    });
+
+    const detection = await window.faceapi
+      .detectSingleFace(image, new window.faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+      .withFaceLandmarks()
+      .withFaceDescriptor();
+
+    return detection?.descriptor ? new Float32Array(detection.descriptor) : null;
+  };
+
+  useEffect(() => {
+    if (!modelsLoaded || !students.length) {
+      runtimeDescriptorMapRef.current = new Map();
+      studentDescriptorSignatureRef.current = '';
+      return undefined;
+    }
+
+    let isCancelled = false;
+
+    const hydrateRuntimeDescriptors = async () => {
+      const hydratedDescriptors = new Map();
+
+      for (const student of students) {
+        if (!student?.studentId) continue;
+
+        let descriptor = Array.isArray(student.descriptor) && student.descriptor.length
+          ? new Float32Array(student.descriptor)
+          : null;
+
+        if (student.photo) {
+          try {
+            const photoDescriptor = await loadDescriptorFromImage(student.photo);
+            if (photoDescriptor) {
+              descriptor = photoDescriptor;
+            }
+          } catch (error) {
+            console.warn(`Descriptor hydration failed for ${student.studentId}`, error);
+          }
+        }
+
+        if (descriptor) {
+          hydratedDescriptors.set(student.studentId, descriptor);
+        }
+      }
+
+      if (!isCancelled) {
+        runtimeDescriptorMapRef.current = hydratedDescriptors;
+        faceMatcherRef.current = null;
+        studentDescriptorSignatureRef.current = '';
+      }
+    };
+
+    hydrateRuntimeDescriptors();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [modelsLoaded, students]);
+
   const scheduleNextScan = (delay = 650) => {
     if (scanTimeoutRef.current) {
       clearTimeout(scanTimeoutRef.current);
@@ -819,17 +1024,26 @@ export default function App() {
     scanInProgressRef.current = true;
 
     try {
+      const descriptorSignature = buildStudentDescriptorSignature(
+        students.map(student => ({
+          ...student,
+          descriptor: runtimeDescriptorMapRef.current.get(student.studentId) || student.descriptor
+        }))
+      );
+
       if (!studentMapRef.current || studentMapRef.current.size !== students.length) {
         studentMapRef.current = new Map(students.map(s => [s.studentId, s]));
       }
 
-      if (!faceMatcherRef.current) {
-        const labeledDescriptors = students
-          .filter(s => Array.isArray(s.descriptor) && s.descriptor.length)
-          .map(s => new faceapi.LabeledFaceDescriptors(s.studentId, [new Float32Array(s.descriptor)]));
-        if (labeledDescriptors.length) {
-          faceMatcherRef.current = new faceapi.FaceMatcher(labeledDescriptors, ATTENDANCE_MATCH_THRESHOLD);
-        }
+      if (!faceMatcherRef.current || studentDescriptorSignatureRef.current !== descriptorSignature) {
+        faceMatcherRef.current = students
+          .map(s => ({
+            studentId: s?.studentId,
+            descriptor: runtimeDescriptorMapRef.current.get(s?.studentId)
+              || (Array.isArray(s?.descriptor) && s.descriptor.length ? new Float32Array(s.descriptor) : null)
+          }))
+          .filter(s => s?.studentId && s?.descriptor?.length);
+        studentDescriptorSignatureRef.current = descriptorSignature;
       }
 
       const scanSource = getAttendanceScanSource();
@@ -852,7 +1066,7 @@ export default function App() {
       }
 
       if (!faceMatcherRef.current) {
-        const prompted = promptUnknownFaceRegistration(detections[0]);
+        const prompted = await promptUnknownFaceRegistration(detections[0]);
         if (prompted) return;
         scheduleNextScan(150);
         return;
@@ -862,21 +1076,25 @@ export default function App() {
       let shouldPromptUnknownFace = false;
 
       for (const det of detections) {
-        const best = faceMatcherRef.current.findBestMatch(det.descriptor);
-        if (best.label === 'unknown' || best.distance > ATTENDANCE_MATCH_THRESHOLD) {
+        const best = resolveAttendanceMatch(det.descriptor);
+        if (!best) {
           if (!shouldPromptUnknownFace) {
-            shouldPromptUnknownFace = promptUnknownFaceRegistration(det);
+            shouldPromptUnknownFace = await promptUnknownFaceRegistration(det);
           }
           continue;
         }
 
-        const sid = best.label;
-        if (markedTodayRef.current.has(sid) || localMarkedRef.current.has(sid)) continue;
-
+        const sid = best.studentId;
         const st = studentMapRef.current.get(sid);
         if (!st || st.year === 'Passed Out') continue;
 
         const facePhoto = captureFaceFromDetection(det);
+        if (markedTodayRef.current.has(sid) || localMarkedRef.current.has(sid)) {
+          openAlreadyPresentModal(st, facePhoto);
+          continue;
+        }
+
+        unknownFaceCandidateCountsRef.current.delete(buildUnknownFaceSignature(det.descriptor));
         localMarkedRef.current.add(sid);
         recognizedStudents.push({ student: st, facePhoto });
       }
@@ -922,6 +1140,8 @@ export default function App() {
         detectionStatsRef.current = { checked: 0 };
         faceMatcherRef.current = null;
         studentMapRef.current = null;
+        studentDescriptorSignatureRef.current = '';
+        unknownFaceCandidateCountsRef.current.clear();
         scanInProgressRef.current = false;
         runScanner();
       })();
@@ -930,6 +1150,8 @@ export default function App() {
       setContinuousScanActive(false);
       faceMatcherRef.current = null;
       studentMapRef.current = null;
+      studentDescriptorSignatureRef.current = '';
+      unknownFaceCandidateCountsRef.current.clear();
       scanSourceMetaRef.current = null;
       scanInProgressRef.current = false;
       if (scanTimeoutRef.current) {
@@ -1145,7 +1367,7 @@ export default function App() {
     setHistoryStudentResult(null);
 
     setRegStep('details');
-    setRegMode('live');
+    setRegMode('none');
     setRegName('');
     setRegId('');
     setRegBranch('CSE');
@@ -1193,7 +1415,7 @@ export default function App() {
     setRegistrationEditStudent(student);
     setRegistrationReturnView('database');
     setRegStep('details');
-    setRegMode(student.photo ? 'upload' : 'live');
+    setRegMode(student.photo ? 'upload' : 'none');
     setRegName(student.name || '');
     setRegId((student.studentId || '').toUpperCase());
     setRegBranch(student.branch || 'CSE');
@@ -1743,11 +1965,27 @@ export default function App() {
     setIdCardData(student);
   };
 
-  const databaseBrowseResults = students.filter((student) => {
-    const matchesYear = databaseBrowseYear === 'All' ? true : (student.year || '').trim() === databaseBrowseYear;
-    const matchesBranch = databaseBrowseBranch === 'All' ? true : (student.branch || '').trim().toUpperCase() === databaseBrowseBranch;
-    return matchesYear && matchesBranch;
-  });
+  const databaseBrowseResults = students
+    .filter((student) => {
+      const matchesYear = databaseBrowseYear === 'All' ? true : (student.year || '').trim() === databaseBrowseYear;
+      const matchesBranch = databaseBrowseBranch === 'All' ? true : (student.branch || '').trim().toUpperCase() === databaseBrowseBranch;
+      return matchesYear && matchesBranch;
+    })
+    .sort((left, right) => (left.studentId || '').localeCompare(right.studentId || ''));
+
+  const normalizedRegId = (regId || '').trim().toUpperCase();
+  const editingStudentId = (registrationEditStudent?.studentId || '').trim().toUpperCase();
+  const duplicateRollNoStudent = normalizedRegId
+    ? students.find(student => {
+        const studentId = (student?.studentId || '').trim().toUpperCase();
+        if (!studentId || studentId !== normalizedRegId) return false;
+        if (registrationEditStudent && studentId === editingStudentId) return false;
+        return true;
+      })
+    : null;
+  const duplicateRollNoMessage = duplicateRollNoStudent
+    ? `This roll number is already used by ${duplicateRollNoStudent.name || 'another student'}.`
+    : '';
 
   // -------------------------------------------------------------------
   // Add staff
@@ -2087,6 +2325,10 @@ export default function App() {
         facePhoto={unidentifiedFaceModal?.facePhoto}
         onRegister={unidentifiedFaceModal?.onRegister}
       />
+      <AlreadyPresentModal
+        detail={alreadyPresentModal}
+        onClose={() => setAlreadyPresentModal(null)}
+      />
 
       {/* HEADER */}
       <Header appUser={appUser} todayCount={todayCount} onMenuClick={() => setIsNavOpen(true)} />
@@ -2110,15 +2352,10 @@ export default function App() {
         {/* REGISTER */}
         {view === 'register' && (
           <RegistrationScreen
-            regStep={regStep}
-            setRegStep={setRegStep}
             regMode={regMode}
             setRegMode={(mode) => {
               setRegMode(mode);
               setRegistrationMessage(null);
-              if (mode === 'upload') {
-                setRegStep('details');
-              }
             }}
             regName={regName}
             setRegName={(value) => {
@@ -2154,7 +2391,6 @@ export default function App() {
             videoRef={videoRef}
             imgRef={imgRef}
             loading={loading}
-            handleProceedToCamera={handleProceedToCamera}
             handleCheckAndRegister={handleCheckAndRegister}
             handleFileChange={handleFileChange}
             toggleCameraFacing={toggleCameraFacing}
@@ -2162,6 +2398,7 @@ export default function App() {
             registrationEditStudent={registrationEditStudent}
             handleSaveStudentEdits={handleSaveStudentEdits}
             registrationMessage={registrationMessage}
+            duplicateRollNoMessage={duplicateRollNoMessage}
             clearRegistrationMessage={() => setRegistrationMessage(null)}
           />
         )}

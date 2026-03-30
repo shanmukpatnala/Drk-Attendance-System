@@ -58,9 +58,14 @@ export function StudentBrowserScreen({
           {databaseBrowseResults.map((student) => (
             <div key={student.studentId} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50 shadow-sm">
               <div className="flex items-center gap-3 p-4">
-                <div className="h-20 w-20 overflow-hidden rounded-xl bg-white">
+                <div className="h-24 w-24 overflow-hidden rounded-xl border border-slate-200 bg-white">
                   {student.photo ? (
-                    <img src={student.photo} alt={student.name} className="h-full w-full object-cover" />
+                    <img
+                      src={student.photo}
+                      alt={student.name}
+                      className="h-full w-full object-contain bg-slate-100 p-1"
+                      loading="lazy"
+                    />
                   ) : (
                     <div className="flex h-full w-full items-center justify-center text-xs text-slate-400">No Photo</div>
                   )}
