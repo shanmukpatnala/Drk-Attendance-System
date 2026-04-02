@@ -1,6 +1,6 @@
 import emailjs from '@emailjs/browser';
-import { hashPassword } from '../utils/helpers';
-import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp, db } from '../utils/firebase';
+import { hashPassword, isValidRollNo, sanitizeRollNoInput } from '../utils/helpers';
+import { collection, query, where, getDocs, addDoc, updateDoc, doc, getDoc, serverTimestamp, db } from '../utils/firebase';
 import { appId } from '../utils/firebase';
 import { EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID } from './constants';
 
@@ -47,6 +47,12 @@ export const performLogin = async ({ username, password, rememberFlag, setStatus
       setStatusMsg({ type: 'error', text: `Invalid username or password\n(Check console for details)` });
     } else {
       const data = snap.docs[0].data();
+      const isActive = data?.active !== false && (data?.status || 'active').toLowerCase() !== 'inactive';
+      if (!isActive) {
+        setStatusMsg({ type: 'error', text: 'This account is deactivated. Contact admin.' });
+        setLoading(false);
+        return;
+      }
       console.log(`[LOGIN] ✓ LOGIN SUCCESS! User: ${data.name || username}`);
       setAppUser({ ...data, id: snap.docs[0].id });
       setStatusMsg(null);
@@ -86,6 +92,52 @@ export const performLogin = async ({ username, password, rememberFlag, setStatus
     setStatusMsg({ type: 'error', text: errorMsg });
   }
   setLoading(false);
+};
+
+export const performStudentLogin = async ({ rollNo, setStatusMsg, setLoading, setStudentUser, setStudentView }) => {
+  const normalizedRollNo = sanitizeRollNoInput(rollNo || '');
+
+  if (!normalizedRollNo) {
+    setStatusMsg({ type: 'error', text: 'Enter roll number' });
+    return false;
+  }
+
+  if (!isValidRollNo(normalizedRollNo)) {
+    setStatusMsg({ type: 'error', text: 'Invalid Roll No. Use 22N71A6655.' });
+    return false;
+  }
+
+  setLoading(true);
+  try {
+    const studentRef = doc(db, 'artifacts', appId, 'public', 'data', 'students', normalizedRollNo);
+    const studentSnap = await getDoc(studentRef);
+
+    if (!studentSnap.exists()) {
+      setStatusMsg({ type: 'error', text: 'Student not found' });
+      return false;
+    }
+
+    const studentData = studentSnap.data();
+    if (studentData?.approved === false || (studentData?.approvalStatus || '').toLowerCase() === 'pending') {
+      setStatusMsg({ type: 'warning', text: 'Your profile is waiting for branch HOD approval.' });
+      return false;
+    }
+
+    setStudentUser({
+      id: studentSnap.id,
+      ...studentData,
+      studentId: studentData?.studentId || normalizedRollNo
+    });
+    setStudentView('student_home');
+    setStatusMsg(null);
+    return true;
+  } catch (error) {
+    console.error('[STUDENT LOGIN] error', error);
+    setStatusMsg({ type: 'error', text: error?.message || 'Student login failed' });
+    return false;
+  } finally {
+    setLoading(false);
+  }
 };
 
 export const verifyResetToken = async ({ token, setResetTokenStatus, setResetUserDocId, setResetDocId }) => {

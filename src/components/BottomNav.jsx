@@ -9,7 +9,7 @@ export function BottomNav({ view, setView, isOpen, setIsOpen, canManageUsers, ap
     { id: 'student_browser', label: 'Browse Students', icon: Users },
     { id: 'reports', label: 'Reports', icon: PieChart },
     { id: 'profile', label: 'Profile', icon: User },
-    ...(canManageUsers ? [{ id: 'manage_users', label: 'Add Staff', icon: UserPlus }] : [])
+    ...(canManageUsers ? [{ id: 'manage_users', label: 'Manage Users', icon: UserPlus }] : [])
   ];
 
   if (!isOpen) return null;

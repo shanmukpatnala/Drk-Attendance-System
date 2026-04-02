@@ -8,3 +8,5 @@ export { StudentBrowserScreen } from './StudentBrowserScreen';
 export { HistoryScreen } from './HistoryScreen';
 export { ProfileScreen } from './ProfileScreen';
 export { ManageUsersScreen } from './ManageUsersScreen';
+export { StudentDashboardScreen } from './StudentDashboardScreen';
+export { StudentHistoryScreen } from './StudentHistoryScreen';
