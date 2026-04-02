@@ -5,12 +5,12 @@ import { QRCodeCanvas } from 'qrcode.react';
 
 // Firebase & utilities
 import { auth, signInAnonymously, onAuthStateChanged, serverTimestamp, collection, addDoc, db, getDocs, updateDoc, doc, getDoc, query, where, onSnapshot, orderBy, setDoc, deleteDoc } from './utils/firebase';
-import { hashPassword, safeData, getTodayDateId, compressImage, formatTime, isValidRollNo, getDateIdsInRange } from './utils/helpers';
+import { hashPassword, safeData, getTodayDateId, compressImage, formatTime, isValidRollNo, getDateIdsInRange, sanitizeRollNoInput } from './utils/helpers';
 import { appId, FACE_API_SCRIPT, MODEL_URL, EMAILJS_SERVICE_ID, EMAILJS_REPORT_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, SHOW_EMAIL_BUTTON, appConfig } from './app/constants';
-import { performLogin as performLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
+import { performLogin as performLoginHandler, performStudentLogin as performStudentLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
 
 // Screen components
-import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, StudentBrowserScreen, HistoryScreen, ProfileScreen, ManageUsersScreen } from './screens';
+import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, StudentBrowserScreen, HistoryScreen, ProfileScreen, ManageUsersScreen, StudentDashboardScreen, StudentHistoryScreen } from './screens';
 
 // Modal components
 import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal, AlreadyPresentModal } from './modals';
@@ -40,6 +40,7 @@ const ATTENDANCE_PROCESSING_WIDTH = 320;
 const UNKNOWN_FACE_SIGNATURE_PRECISION = 1;
 const UNKNOWN_FACE_SKIP_COOLDOWN_MS = 5000;
 const HISTORY_START_DATE = '2026-03-20';
+const BRANCH_DISPLAY_ORDER = ['CSE', 'CSM', 'CSD', 'CSC', 'ECE', 'EEE', 'MECH', 'CIVIL'];
 
 
 
@@ -48,12 +49,17 @@ export default function App() {
   // Auth
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [appUser, setAppUser] = useState(null);
+  const [studentUser, setStudentUser] = useState(null);
+  const [portalMode, setPortalMode] = useState('faculty');
 
   // Login
   const [loginUser, setLoginUser] = useState('');
   const [loginPass, setLoginPass] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [studentLoginRollNo, setStudentLoginRollNo] = useState('');
+  const [studentRememberMe, setStudentRememberMe] = useState(false);
+  const [studentSelfRegisterMode, setStudentSelfRegisterMode] = useState(false);
 
   // Forgot Password
   const [forgotPasswordMode, setForgotPasswordMode] = useState(false);
@@ -107,6 +113,7 @@ export default function App() {
   const [idCardData, setIdCardData] = useState(null);
   const [databaseBrowseYear, setDatabaseBrowseYear] = useState('All');
   const [databaseBrowseBranch, setDatabaseBrowseBranch] = useState('All');
+  const [showApprovalQueueOnly, setShowApprovalQueueOnly] = useState(false);
   const [registrationEditStudent, setRegistrationEditStudent] = useState(null);
   const [registrationReturnView, setRegistrationReturnView] = useState('home');
 
@@ -119,6 +126,8 @@ export default function App() {
   const [newUserDesignation, setNewUserDesignation] = useState('Faculty');
   const [newUserPass, setNewUserPass] = useState('');
   const [newUserConfirmPass, setNewUserConfirmPass] = useState('');
+  const [manageUsersTab, setManageUsersTab] = useState('create');
+  const [staffUsers, setStaffUsers] = useState([]);
 
   // Camera
   const videoRef = useRef(null);
@@ -156,6 +165,8 @@ export default function App() {
   const [historyStudentResult, setHistoryStudentResult] = useState(null);
   const [historyError, setHistoryError] = useState('');
   const [registrationMessage, setRegistrationMessage] = useState(null);
+  const [studentPortalSummary, setStudentPortalSummary] = useState(null);
+  const [studentPortalLoading, setStudentPortalLoading] = useState(false);
 
   // Unidentified face modal
   const [unidentifiedFaceModal, setUnidentifiedFaceModal] = useState(null);
@@ -163,6 +174,8 @@ export default function App() {
   const unknownFaceSkipUntilRef = useRef(0);
   const [alreadyPresentModal, setAlreadyPresentModal] = useState(null);
   const alreadyPresentPopupRef = useRef(new Map());
+
+  const browserBranchOptions = BRANCH_DISPLAY_ORDER;
 
   // -------------------------------------------------------------------
   // INIT: Firebase anonymous auth + face-api script
@@ -238,6 +251,21 @@ export default function App() {
     };
   }, [firebaseUser]);
 
+  useEffect(() => {
+    if (!firebaseUser) return;
+
+    const usersQuery = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'app_users')
+    );
+
+    const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
+      const users = snapshot.docs.map((item) => ({ id: item.id, ...safeData(item.data()) }));
+      setStaffUsers(users);
+    });
+
+    return () => unsubUsers();
+  }, [firebaseUser]);
+
   // initialize EmailJS
   useEffect(() => {
     try {
@@ -275,6 +303,35 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!firebaseUser || appUser || studentUser) return;
+
+    const saved = localStorage.getItem('drkAttendanceStudentRemember');
+    if (!saved) return;
+
+    try {
+      const { rollNo, remember } = JSON.parse(saved);
+      if (remember && rollNo) {
+        setPortalMode('student');
+        setStudentRememberMe(true);
+        setStudentLoginRollNo(rollNo);
+        performStudentLoginHandler({
+          rollNo,
+          setStatusMsg,
+          setLoading,
+          setStudentUser,
+          setStudentView: setView
+        }).then((loginSucceeded) => {
+          if (!loginSucceeded) {
+            localStorage.removeItem('drkAttendanceStudentRemember');
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Student remember me parse error', error);
+    }
+  }, [firebaseUser, appUser, studentUser]);
+
+  useEffect(() => {
     markedTodayRef.current = markedToday;
   }, [markedToday]);
 
@@ -289,6 +346,27 @@ export default function App() {
     setProfileDept(appUser.department || '');
     setProfilePhotoPreview(appUser.photo || null);
     setShowProfilePhotoActions(false);
+  }, [appUser]);
+
+  useEffect(() => {
+    if (!appUser) return;
+
+    const role = (appUser?.role || '').trim().toLowerCase();
+    if (role === 'hod') {
+      setNewUserDept((appUser?.department || '').trim().toUpperCase());
+      setNewUserDesignation('Faculty');
+      return;
+    }
+
+    if (role === 'dean') {
+      setNewUserDesignation((currentValue) => (
+        currentValue === 'Dean' || currentValue === 'Principal' ? 'HOD' : currentValue || 'HOD'
+      ));
+    }
+
+    if (role === 'admin') {
+      setNewUserDesignation((currentValue) => currentValue || 'Dean');
+    }
   }, [appUser]);
 
   // process reset token from URL
@@ -340,7 +418,9 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (!modelsLoaded || !appUser) {
+    const registrationAccessAllowed = Boolean(appUser) || studentSelfRegisterMode;
+
+    if (!modelsLoaded || !registrationAccessAllowed) {
       stopVideo();
       return;
     }
@@ -354,7 +434,7 @@ export default function App() {
       stopVideo();
     }
     // eslint-disable-next-line
-  }, [view, modelsLoaded, attStep, regMode, appUser, cameraFacing]);
+  }, [view, modelsLoaded, attStep, regMode, appUser, studentSelfRegisterMode, cameraFacing]);
 
   
 
@@ -375,12 +455,71 @@ export default function App() {
     });
   };
 
+  const handleStudentLogin = async () => {
+    const normalizedRollNo = sanitizeRollNoInput(studentLoginRollNo || '');
+
+    if (!normalizedRollNo) {
+      setStatusMsg({ type: 'error', text: 'Enter roll number' });
+      return;
+    }
+
+    if (!isValidRollNo(normalizedRollNo)) {
+      setStatusMsg({ type: 'error', text: 'Invalid Roll No. Use 22N71A6655.' });
+      return;
+    }
+
+    const existingStudent = students.find(
+      student => (student.studentId || '').trim().toUpperCase() === normalizedRollNo
+    );
+
+    if (!existingStudent) {
+      resetViewState('register');
+      setPortalMode('student');
+      setStudentSelfRegisterMode(true);
+      setRegId(normalizedRollNo);
+      setRegistrationMessage({
+        type: 'info',
+        text: `Roll number ${normalizedRollNo} is not registered yet. Fill your profile to submit it for HOD approval.`
+      });
+      return;
+    }
+
+    const loginSucceeded = await performStudentLoginHandler({
+      rollNo: normalizedRollNo,
+      setStatusMsg,
+      setLoading,
+      setStudentUser,
+      setStudentView: setView
+    });
+
+    if (!loginSucceeded) {
+      localStorage.removeItem('drkAttendanceStudentRemember');
+      return;
+    }
+
+    if (studentRememberMe) {
+      localStorage.setItem('drkAttendanceStudentRemember', JSON.stringify({
+        rollNo: normalizedRollNo,
+        remember: true
+      }));
+    } else {
+      localStorage.removeItem('drkAttendanceStudentRemember');
+    }
+  };
+
   const handleLogout = () => {
     setAppUser(null);
+    setStudentUser(null);
     setView('home');
+    setPortalMode('faculty');
     setLoginUser('');
     setLoginPass('');
+    setStudentLoginRollNo('');
+    setStudentRememberMe(false);
+    setStudentSelfRegisterMode(false);
+    setStudentPortalSummary(null);
     localStorage.removeItem('drkAttendanceRemember');
+    localStorage.removeItem('drkAttendanceStudentRemember');
   };
 
   // -------------------------------------------------------------------
@@ -715,6 +854,7 @@ export default function App() {
 
       const descriptorArray = Array.from(detections.descriptor);
       const photoBase64 = compressImage(inputSource);
+      const isStudentSelfRegistration = studentSelfRegisterMode && !appUser;
       const studentData = {
         name: regName,
         studentId: regId.toUpperCase(),
@@ -724,7 +864,12 @@ export default function App() {
         email: regEmail,
         photo: photoBase64,
         descriptor: descriptorArray,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        approved: isStudentSelfRegistration ? false : true,
+        approvalStatus: isStudentSelfRegistration ? 'pending' : 'approved',
+        approvedBy: isStudentSelfRegistration ? '' : (appUser?.username || 'system'),
+        approvedAt: isStudentSelfRegistration ? null : serverTimestamp(),
+        selfRegistered: isStudentSelfRegistration
       };
 
       const existingStudent = students.find(
@@ -739,7 +884,15 @@ export default function App() {
         return;
       }
 
-      await performRegistration(studentData, dataDocId || null);
+      const saved = await performRegistration(studentData, dataDocId || null);
+      if (saved && isStudentSelfRegistration) {
+        setStudentSelfRegisterMode(false);
+        setPortalMode('student');
+        setStatusMsg({
+          type: 'success',
+          text: 'Profile submitted successfully. You can login after your branch HOD approves it.'
+        });
+      }
     } catch (err) {
       console.error(err);
       setRegistrationMessage({ type: 'error', text: "Detection failed. Try again." });
@@ -1354,6 +1507,7 @@ export default function App() {
     setIdCardData(null);
     setDatabaseBrowseYear('All');
     setDatabaseBrowseBranch('All');
+    setShowApprovalQueueOnly(false);
     setRegistrationEditStudent(null);
     setRegistrationReturnView('home');
 
@@ -1388,10 +1542,13 @@ export default function App() {
     setNewUserLastName('');
     setNewUserUser('');
     setNewUserEmail('');
-    setNewUserDept('CSE');
-    setNewUserDesignation('Faculty');
+    setNewUserDept(currentUserRole === 'hod' ? currentUserDepartment : 'CSE');
+    setNewUserDesignation(
+      currentUserRole === 'admin' ? 'Dean' : currentUserRole === 'dean' ? 'HOD' : 'Faculty'
+    );
     setNewUserPass('');
     setNewUserConfirmPass('');
+    setManageUsersTab('create');
 
     setStatusMsg(null);
     setRegistrationMessage(null);
@@ -1406,6 +1563,34 @@ export default function App() {
   const handleRegistrationBack = () => {
     setRegistrationEditStudent(null);
     navigateToView(registrationReturnView || 'home');
+  };
+
+  const handleStudentRegistrationBack = () => {
+    resetViewState('home');
+    setStudentSelfRegisterMode(false);
+    setPortalMode('student');
+    setRegistrationMessage(null);
+    setStatusMsg(null);
+  };
+
+  const handleStudentSelfEdit = () => {
+    if (!studentUser) return;
+
+    resetViewState('register');
+    setRegistrationEditStudent(studentUser);
+    setRegistrationReturnView('student_home');
+    setRegStep('details');
+    setRegMode(studentUser.photo ? 'upload' : 'none');
+    setRegName(studentUser.name || '');
+    setRegId((studentUser.studentId || '').toUpperCase());
+    setRegBranch(studentUser.branch || 'CSE');
+    setRegYear(studentUser.year || '1st');
+    setRegPhone(studentUser.phone || '');
+    setRegEmail(studentUser.email || '');
+    setUploadedImgSrc(studentUser.photo || null);
+    setView('register');
+    setStatusMsg(null);
+    setRegistrationMessage(null);
   };
 
   const openStudentEditor = (student, nextView = 'register') => {
@@ -1470,6 +1655,14 @@ export default function App() {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', previousStudentId));
       }
 
+      if (registrationReturnView === 'student_home') {
+        setStudentUser(prev => prev ? { ...prev, ...updatedStudent } : prev);
+        setRegistrationEditStudent(null);
+        setRegistrationReturnView('home');
+        setView('student_home');
+        return;
+      }
+
       setRegistrationEditStudent(null);
       setRegistrationReturnView('home');
       setView('database');
@@ -1483,6 +1676,14 @@ export default function App() {
     resetViewState('student_browser');
     setDatabaseBrowseYear(year);
     setDatabaseBrowseBranch(branch);
+    setShowApprovalQueueOnly(false);
+    setView('student_browser');
+    setIsNavOpen(false);
+  };
+
+  const handleOpenApprovalQueue = () => {
+    resetViewState('student_browser');
+    setShowApprovalQueueOnly(true);
     setView('student_browser');
     setIsNavOpen(false);
   };
@@ -1805,6 +2006,109 @@ export default function App() {
   // -------------------------------------------------------------------
   // History: fetch complete student attendance history
   // -------------------------------------------------------------------
+  const fetchStudentAttendanceSummary = async (rollNo) => {
+    const normalizedRollNo = (rollNo || '').trim().toUpperCase();
+
+    if (!normalizedRollNo) {
+      return { ok: false, error: 'Enter roll number' };
+    }
+
+    if (!isValidRollNo(normalizedRollNo)) {
+      return { ok: false, error: 'Invalid Roll No. Use 22N71A6655, with letters in positions 3 and 6.' };
+    }
+
+    const student = students.find(
+      s => (s.studentId || '').trim().toUpperCase() === normalizedRollNo
+    ) || ((studentUser?.studentId || '').trim().toUpperCase() === normalizedRollNo ? studentUser : null);
+
+    if (!student) {
+      return { ok: false, error: 'Student not found' };
+    }
+
+    const attendanceLogsQuery = query(
+      collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs'),
+      where('studentId', '==', normalizedRollNo)
+    );
+    const attendanceLogsSnap = await getDocs(attendanceLogsQuery);
+    const presentRecordsByDate = new Map();
+    const attendanceLogRows = attendanceLogsSnap.docs
+      .map((logDoc) => safeData(logDoc.data()))
+      .sort((a, b) => {
+        const dateCompare = (b.date || b.dateId || '').localeCompare(a.date || a.dateId || '');
+        if (dateCompare !== 0) return dateCompare;
+        return (b.timeIn || '').localeCompare(a.timeIn || '');
+      });
+
+    attendanceLogRows.forEach((data) => {
+      const dateId = data.date || data.dateId || '';
+      if (!dateId || presentRecordsByDate.has(dateId)) return;
+
+      presentRecordsByDate.set(dateId, {
+        dateId,
+        isPresent: true,
+        timeIn: data.timeIn || '-',
+        photo: data.facePhoto || '',
+        status: data.status || 'Present'
+      });
+    });
+
+    const rangeDateIds = getDateIdsInRange(HISTORY_START_DATE, getTodayDateId());
+    const sortedDateIds = [...new Set([...rangeDateIds, ...presentRecordsByDate.keys()])]
+      .sort((a, b) => b.localeCompare(a));
+
+    const recordSnaps = await Promise.all(
+      sortedDateIds.map(async (dateId) => {
+        const logRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs', normalizedRollNo);
+        const logSnap = await getDoc(logRef);
+        return logSnap.exists()
+          ? { dateId, data: safeData(logSnap.data()) }
+          : null;
+      })
+    );
+
+    const timeline = sortedDateIds
+      .map((dateId) => {
+        const matchedRecord = recordSnaps.find((record) => record?.dateId === dateId);
+        const fallbackPresentRecord = presentRecordsByDate.get(dateId) || null;
+        const data = matchedRecord?.data || fallbackPresentRecord;
+        const isPresent = Boolean(data);
+
+        return {
+          dateId,
+          isPresent,
+          timeIn: isPresent ? (data.timeIn || '-') : '-',
+          photo: isPresent ? ((data.facePhoto || data.photo || '')) : '',
+          status: isPresent ? (data.status || 'Present') : 'Absent'
+        };
+      })
+      .sort((a, b) => {
+        const dateCompare = b.dateId.localeCompare(a.dateId);
+        if (dateCompare !== 0) return dateCompare;
+        return (b.timeIn || '').localeCompare(a.timeIn || '');
+      });
+
+    const totalPresent = timeline.filter((record) => record.isPresent).length;
+    const totalAbsent = timeline.filter((record) => !record.isPresent).length;
+    const totalDays = timeline.length;
+    const attendancePercentage = totalDays ? Math.round((totalPresent / totalDays) * 100) : 0;
+
+    return {
+      ok: true,
+      data: {
+        studentId: normalizedRollNo,
+        name: student?.name || '',
+        branch: student?.branch || '',
+        year: student?.year || '',
+        latestPresentDate: timeline.find((record) => record.isPresent)?.dateId || '',
+        totalPresent,
+        totalAbsent,
+        totalDays,
+        attendancePercentage,
+        timeline
+      }
+    };
+  };
+
   const handleHistoryStudentSearch = async () => {
     const normalizedRollNo = historyRollNo.trim().toUpperCase();
 
@@ -1823,90 +2127,14 @@ export default function App() {
     setHistoryError('');
     setHistoryLoading(true);
     try {
-      const student = students.find(
-        s => (s.studentId || '').trim().toUpperCase() === normalizedRollNo
-      );
-
-      if (!student) {
+      const result = await fetchStudentAttendanceSummary(normalizedRollNo);
+      if (!result.ok) {
         setHistoryStudentResult(null);
-        setHistoryError('Student not found');
-        setHistoryLoading(false);
+        setHistoryError(result.error);
         return;
       }
 
-      const attendanceLogsQuery = query(
-        collection(db, 'artifacts', appId, 'public', 'data', 'attendance_logs'),
-        where('studentId', '==', normalizedRollNo)
-      );
-      const attendanceLogsSnap = await getDocs(attendanceLogsQuery);
-      const presentRecordsByDate = new Map();
-      const attendanceLogRows = attendanceLogsSnap.docs
-        .map((logDoc) => safeData(logDoc.data()))
-        .sort((a, b) => {
-          const dateCompare = (b.date || b.dateId || '').localeCompare(a.date || a.dateId || '');
-          if (dateCompare !== 0) return dateCompare;
-          return (b.timeIn || '').localeCompare(a.timeIn || '');
-        });
-
-      attendanceLogRows.forEach((data) => {
-        const dateId = data.date || data.dateId || '';
-        if (!dateId || presentRecordsByDate.has(dateId)) return;
-
-        presentRecordsByDate.set(dateId, {
-          dateId,
-          isPresent: true,
-          timeIn: data.timeIn || '-',
-          photo: data.facePhoto || '',
-          status: data.status || 'Present'
-        });
-      });
-
-      const rangeDateIds = getDateIdsInRange(HISTORY_START_DATE, getTodayDateId());
-      const sortedDateIds = [...new Set([...rangeDateIds, ...presentRecordsByDate.keys()])]
-        .sort((a, b) => b.localeCompare(a));
-
-      const recordSnaps = await Promise.all(
-        sortedDateIds.map(async (dateId) => {
-          const logRef = doc(db, 'artifacts', appId, 'public', 'data', 'attendance_daily', dateId, 'logs', normalizedRollNo);
-          const logSnap = await getDoc(logRef);
-          return logSnap.exists()
-            ? { dateId, data: safeData(logSnap.data()) }
-            : null;
-        })
-      );
-
-      const timeline = sortedDateIds
-        .map((dateId) => {
-          const matchedRecord = recordSnaps.find((record) => record?.dateId === dateId);
-          const fallbackPresentRecord = presentRecordsByDate.get(dateId) || null;
-          const data = matchedRecord?.data || fallbackPresentRecord;
-          const isPresent = Boolean(data);
-
-          return {
-            dateId,
-            isPresent,
-            timeIn: isPresent ? (data.timeIn || '-') : '-',
-            photo: isPresent ? ((data.facePhoto || data.photo || '')) : '',
-            status: isPresent ? (data.status || 'Present') : 'Absent'
-          };
-        })
-        .sort((a, b) => {
-          const dateCompare = b.dateId.localeCompare(a.dateId);
-          if (dateCompare !== 0) return dateCompare;
-          return (b.timeIn || '').localeCompare(a.timeIn || '');
-        });
-
-      const presentRecords = timeline.filter((record) => record.isPresent);
-
-      setHistoryStudentResult({
-        studentId: normalizedRollNo,
-        name: student?.name || '',
-        latestPresentDate: presentRecords[0]?.dateId || '',
-        totalPresent: presentRecords.length,
-        totalAbsent: timeline.filter((record) => !record.isPresent).length,
-        timeline
-      });
-      setHistoryError('');
+      setHistoryStudentResult(result.data);
     } catch (error) {
       console.error('handleHistoryStudentSearch error', error);
       setHistoryStudentResult(null);
@@ -1914,6 +2142,52 @@ export default function App() {
     }
     setHistoryLoading(false);
   };
+
+  useEffect(() => {
+    if (!studentUser?.studentId) {
+      setStudentPortalSummary(null);
+      return;
+    }
+
+    let active = true;
+
+    const loadStudentPortalSummary = async () => {
+      setStudentPortalLoading(true);
+      try {
+        const result = await fetchStudentAttendanceSummary(studentUser.studentId);
+        if (!active) return;
+
+        if (result.ok) {
+          setStudentPortalSummary(result.data);
+          const currentStudentRecord = students.find(
+            s => (s.studentId || '').trim().toUpperCase() === (studentUser.studentId || '').trim().toUpperCase()
+          );
+          if (currentStudentRecord) {
+            setStudentUser((prev) => prev ? { ...prev, ...currentStudentRecord } : prev);
+          }
+        } else {
+          setStudentPortalSummary(null);
+          setStatusMsg({ type: 'error', text: result.error });
+        }
+      } catch (error) {
+        console.error('student portal summary error', error);
+        if (active) {
+          setStudentPortalSummary(null);
+          setStatusMsg({ type: 'error', text: 'Failed to load student attendance summary' });
+        }
+      } finally {
+        if (active) {
+          setStudentPortalLoading(false);
+        }
+      }
+    };
+
+    loadStudentPortalSummary();
+
+    return () => {
+      active = false;
+    };
+  }, [studentUser?.studentId, students]);
 
   // -------------------------------------------------------------------
   // Fetch today's DB count for header (attendance_daily/{today}/logs)
@@ -1965,13 +2239,63 @@ export default function App() {
     setIdCardData(student);
   };
 
+  const canApproveStudentProfile = (student) => {
+    const role = (appUser?.role || '').toLowerCase();
+    const branch = (student?.branch || '').trim().toUpperCase();
+    const department = (appUser?.department || '').trim().toUpperCase();
+
+    if (role !== 'hod') return false;
+    if (!branch || !department) return false;
+    return branch === department;
+  };
+
+  const handleApproveStudent = async (student) => {
+    if (!student?.studentId || !canApproveStudentProfile(student)) return;
+
+    try {
+      await updateDoc(
+        doc(db, 'artifacts', appId, 'public', 'data', 'students', student.studentId),
+        {
+          approved: true,
+          approvalStatus: 'approved',
+          approvedBy: appUser?.username || appUser?.name || 'hod',
+          approvedAt: serverTimestamp()
+        }
+      );
+      setStatusMsg({ type: 'success', text: `${student.name || student.studentId} approved successfully.` });
+    } catch (error) {
+      console.error('approve student error', error);
+      setStatusMsg({ type: 'error', text: 'Failed to approve student profile' });
+    }
+  };
+
+  const handleRejectStudent = async (student) => {
+    if (!student?.studentId || !canApproveStudentProfile(student)) return;
+
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'students', student.studentId));
+      setStatusMsg({ type: 'success', text: `${student.name || student.studentId} rejected and removed.` });
+    } catch (error) {
+      console.error('reject student error', error);
+      setStatusMsg({ type: 'error', text: 'Failed to reject student profile' });
+    }
+  };
+
   const databaseBrowseResults = students
     .filter((student) => {
+      const isPending = student?.approved === false || (student?.approvalStatus || '').toLowerCase() === 'pending';
       const matchesYear = databaseBrowseYear === 'All' ? true : (student.year || '').trim() === databaseBrowseYear;
-      const matchesBranch = databaseBrowseBranch === 'All' ? true : (student.branch || '').trim().toUpperCase() === databaseBrowseBranch;
-      return matchesYear && matchesBranch;
+      const studentBranch = (student.branch || '').trim().toUpperCase();
+      const matchesBranch = databaseBrowseBranch === 'All' ? true : studentBranch === databaseBrowseBranch;
+      const matchesApprovalQueue = showApprovalQueueOnly ? isPending : true;
+      return matchesYear && matchesBranch && matchesApprovalQueue;
     })
     .sort((left, right) => (left.studentId || '').localeCompare(right.studentId || ''));
+
+  const pendingStudentApprovals = students.filter(student => {
+    const isPending = student?.approved === false || (student?.approvalStatus || '').toLowerCase() === 'pending';
+    return isPending && canApproveStudentProfile(student);
+  });
 
   const normalizedRegId = (regId || '').trim().toUpperCase();
   const editingStudentId = (registrationEditStudent?.studentId || '').trim().toUpperCase();
@@ -1987,16 +2311,102 @@ export default function App() {
     ? `This roll number is already used by ${duplicateRollNoStudent.name || 'another student'}.`
     : '';
 
+  const currentUserRole = (appUser?.role || '').trim().toLowerCase();
+  const currentUserDepartment = (appUser?.department || '').trim().toUpperCase();
+  const normalizedNewUserDept = (newUserDept || '').trim().toUpperCase();
+  const normalizedNewUserDesignation = (newUserDesignation || '').trim().toLowerCase();
+
+  const baseDesignationOptions = currentUserRole === 'admin'
+    ? ['Dean', 'Principal', 'HOD', 'Faculty']
+    : ['dean', 'principal'].includes(currentUserRole)
+      ? ['HOD', 'Faculty']
+      : currentUserRole === 'hod'
+        ? ['Faculty']
+        : [];
+
+  const deanExists = staffUsers.some(
+    (user) => (user?.role || '').trim().toLowerCase() === 'dean'
+  );
+  const principalExists = staffUsers.some(
+    (user) => (user?.role || '').trim().toLowerCase() === 'principal'
+  );
+  const hodDepartments = new Set(
+    staffUsers
+      .filter((user) => (user?.role || '').trim().toLowerCase() === 'hod')
+      .map((user) => ((user?.department || '').trim().toUpperCase()))
+      .filter(Boolean)
+  );
+  const allDepartmentOptions = ['CSE', 'CSM', 'CSD', 'CSC', 'ECE', 'EEE', 'MECH', 'CIVIL'];
+  const availableHodDepartments = allDepartmentOptions.filter((department) => !hodDepartments.has(department));
+  const selectedDepartmentHasHod = staffUsers.some((user) => (
+    (user?.role || '').trim().toLowerCase() === 'hod'
+    && ((user?.department || '').trim().toUpperCase() === normalizedNewUserDept)
+  ));
+
+  const allowedDesignationOptions = baseDesignationOptions.filter((designation) => {
+    const normalizedDesignation = designation.toLowerCase();
+
+    if (normalizedDesignation === 'dean' && deanExists) return false;
+    if (normalizedDesignation === 'principal' && principalExists) return false;
+    if (normalizedDesignation === 'hod' && availableHodDepartments.length === 0) return false;
+
+    return true;
+  });
+
+  const visibleManagedUsers = staffUsers
+    .filter((user) => {
+      if (currentUserRole === 'admin' || currentUserRole === 'dean') return true;
+      if (currentUserRole === 'hod') {
+        return ((user?.department || '').trim().toUpperCase() === currentUserDepartment)
+          && (user?.role || '').trim().toLowerCase() === 'faculty';
+      }
+      return false;
+    })
+    .sort((left, right) => {
+      const roleCompare = (left?.role || '').localeCompare(right?.role || '');
+      if (roleCompare !== 0) return roleCompare;
+      return (left?.name || '').localeCompare(right?.name || '');
+    });
+
+  const availableDepartmentOptions = normalizedNewUserDesignation === 'hod'
+    ? ['admin', 'dean', 'principal'].includes(currentUserRole)
+      ? availableHodDepartments
+      : allDepartmentOptions
+    : allDepartmentOptions;
+
+  useEffect(() => {
+    if (!allowedDesignationOptions.length) return;
+    if (!allowedDesignationOptions.includes(newUserDesignation)) {
+      setNewUserDesignation(allowedDesignationOptions[0]);
+    }
+  }, [allowedDesignationOptions, newUserDesignation]);
+
+  useEffect(() => {
+    if (!availableDepartmentOptions.length) return;
+    if (!availableDepartmentOptions.includes(newUserDept)) {
+      setNewUserDept(availableDepartmentOptions[0]);
+    }
+  }, [availableDepartmentOptions, newUserDept]);
+
   // -------------------------------------------------------------------
   // Add staff
   // -------------------------------------------------------------------
   const handleCreateStaff = async () => {
+    if (!appUser) {
+      setStatusMsg({ type: 'error', text: 'Login required to create users.' });
+      return;
+    }
+
+    if (!allowedDesignationOptions.includes(newUserDesignation)) {
+      setStatusMsg({ type: 'error', text: 'You are not allowed to create this role.' });
+      return;
+    }
+
     if (
       !newUserFirstName ||
       !newUserLastName ||
       !newUserUser ||
       !newUserEmail ||
-      !newUserDept ||
       !newUserDesignation ||
       !newUserPass ||
       !newUserConfirmPass
@@ -2015,38 +2425,156 @@ export default function App() {
 
     try {
       const fullName = `${newUserFirstName} ${newUserLastName}`.trim();
-      let roleToSave = 'faculty';
-      if (newUserDesignation.toLowerCase() === 'hod') roleToSave = 'hod';
-      if (newUserDesignation.toLowerCase() === 'principal') roleToSave = 'principal';
-      if (newUserDesignation.toLowerCase() === 'admin') roleToSave = 'admin';
+      const normalizedUsername = newUserUser.trim().toLowerCase();
+      const normalizedEmail = newUserEmail.trim().toLowerCase();
+      const designationLabel = newUserDesignation.trim();
+      const roleToSave = designationLabel.toLowerCase();
+      const needsDepartment = !['dean', 'principal'].includes(roleToSave);
+      const departmentToSave = needsDepartment
+        ? (currentUserRole === 'hod' ? currentUserDepartment : normalizedNewUserDept)
+        : '';
+
+      if (needsDepartment && !departmentToSave) {
+        setStatusMsg({ type: 'error', text: 'Select a department.' });
+        return;
+      }
+
+      if (currentUserRole === 'hod' && departmentToSave !== currentUserDepartment) {
+        setStatusMsg({ type: 'error', text: 'HOD can create faculty only for their own branch.' });
+        return;
+      }
+
+      const existingUsername = staffUsers.find(
+        (user) => (user?.username || '').trim().toLowerCase() === normalizedUsername
+      );
+      if (existingUsername) {
+        setStatusMsg({ type: 'error', text: 'This username already exists. Use a different username.' });
+        return;
+      }
+
+      const existingEmail = staffUsers.find(
+        (user) => (user?.email || '').trim().toLowerCase() === normalizedEmail
+      );
+      if (existingEmail) {
+        setStatusMsg({ type: 'error', text: 'This email already exists. Use a different email.' });
+        return;
+      }
+
+      if (roleToSave === 'principal') {
+        const principalExists = staffUsers.some(
+          (user) => (user?.role || '').trim().toLowerCase() === 'principal'
+        );
+        if (principalExists) {
+          setStatusMsg({ type: 'error', text: 'Principal account already exists. Cannot create another principal.' });
+          return;
+        }
+      }
+
+      if (roleToSave === 'dean') {
+        const deanExists = staffUsers.some(
+          (user) => (user?.role || '').trim().toLowerCase() === 'dean'
+        );
+        if (deanExists) {
+          setStatusMsg({ type: 'error', text: 'Dean account already exists. Cannot create another dean.' });
+          return;
+        }
+      }
+
+      if (roleToSave === 'hod') {
+        const existingHod = staffUsers.find((user) => (
+          (user?.role || '').trim().toLowerCase() === 'hod'
+          && ((user?.department || '').trim().toUpperCase() === departmentToSave)
+        ));
+        if (existingHod) {
+          setStatusMsg({ type: 'error', text: `${departmentToSave} HOD already exists. Cannot create another HOD for this branch.` });
+          return;
+        }
+      }
 
       const hashed = await hashPassword(newUserPass);
 
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'app_users'), {
-        username: newUserUser.toLowerCase(),
+        username: normalizedUsername,
         password: hashed,
         role: roleToSave,
         name: fullName,
-        department: newUserDept,
-        designation: newUserDesignation,
-        email: newUserEmail,
+        department: departmentToSave,
+        designation: designationLabel,
+        email: normalizedEmail,
+        active: true,
+        status: 'active',
         createdBy: appUser?.username,
         createdAt: serverTimestamp()
       });
 
-      setStatusMsg({ type: 'success', text: `Staff member ${fullName} created successfully` });
+      setStatusMsg({ type: 'success', text: `${designationLabel} account for ${fullName} created successfully.` });
 
       setNewUserFirstName('');
       setNewUserLastName('');
       setNewUserUser('');
       setNewUserEmail('');
-      setNewUserDept('CSE');
-      setNewUserDesignation('Faculty');
+      setNewUserDept(currentUserRole === 'hod' ? currentUserDepartment : 'CSE');
+      setNewUserDesignation(allowedDesignationOptions[0] || 'Faculty');
       setNewUserPass('');
       setNewUserConfirmPass('');
+      setManageUsersTab('list');
     } catch (err) {
       console.error(err);
       setStatusMsg({ type: 'error', text: "Failed to create staff" });
+    }
+  };
+
+  const handleToggleUserStatus = async (user) => {
+    if (currentUserRole !== 'admin' || !user?.id) {
+      setStatusMsg({ type: 'error', text: 'Only admin can activate or deactivate users.' });
+      return;
+    }
+
+    if (user.id === appUser?.id) {
+      setStatusMsg({ type: 'error', text: 'You cannot deactivate your own account.' });
+      return;
+    }
+
+    const currentlyActive = user?.active !== false && (user?.status || 'active').toLowerCase() !== 'inactive';
+    const nextActive = !currentlyActive;
+
+    try {
+      await updateDoc(
+        doc(db, 'artifacts', appId, 'public', 'data', 'app_users', user.id),
+        {
+          active: nextActive,
+          status: nextActive ? 'active' : 'inactive',
+          updatedAt: serverTimestamp(),
+          updatedBy: appUser?.username || 'admin'
+        }
+      );
+      setStatusMsg({
+        type: 'success',
+        text: `${user.name || user.username} ${nextActive ? 'activated' : 'deactivated'} successfully.`
+      });
+    } catch (error) {
+      console.error('toggle user status error', error);
+      setStatusMsg({ type: 'error', text: 'Failed to update user status.' });
+    }
+  };
+
+  const handleRemoveUser = async (user) => {
+    if (currentUserRole !== 'admin' || !user?.id) {
+      setStatusMsg({ type: 'error', text: 'Only admin can remove users.' });
+      return;
+    }
+
+    if (user.id === appUser?.id) {
+      setStatusMsg({ type: 'error', text: 'You cannot remove your own account.' });
+      return;
+    }
+
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', user.id));
+      setStatusMsg({ type: 'success', text: `${user.name || user.username} removed successfully.` });
+    } catch (error) {
+      console.error('remove user error', error);
+      setStatusMsg({ type: 'error', text: 'Failed to remove user.' });
     }
   };
 
@@ -2161,65 +2689,192 @@ export default function App() {
   }
 
   // If not logged in and not reset flow, show login
-  if (!appUser && !forgotPasswordMode) {
+  if (!appUser && !studentUser && !forgotPasswordMode) {
+    if (portalMode === 'student' && studentSelfRegisterMode) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-6">
+          <div className="mx-auto max-w-5xl">
+            <div className="mb-6 flex flex-col items-center">
+              <img src="/logos/login-logo.png" alt="Login Logo" className="mb-5 h-32 w-56 object-contain sm:h-36 sm:w-64" />
+              <h2 className="text-center text-xl font-bold text-slate-800">Student Registration</h2>
+              <p className="mt-2 text-sm text-slate-500">Submit your profile. Your branch HOD must approve it before you can login.</p>
+            </div>
+
+            <Message statusMsg={statusMsg} setStatusMsg={setStatusMsg} />
+
+            <RegistrationScreen
+              regMode={regMode}
+              setRegMode={(mode) => {
+                setRegMode(mode);
+                setRegistrationMessage(null);
+              }}
+              regName={regName}
+              setRegName={(value) => {
+                setRegName(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regId={regId}
+              setRegId={(value) => {
+                setRegId(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regBranch={regBranch}
+              setRegBranch={(value) => {
+                setRegBranch(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regYear={regYear}
+              setRegYear={(value) => {
+                setRegYear(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regPhone={regPhone}
+              setRegPhone={(value) => {
+                setRegPhone(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regEmail={regEmail}
+              setRegEmail={(value) => {
+                setRegEmail(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              uploadedImgSrc={uploadedImgSrc}
+              videoRef={videoRef}
+              imgRef={imgRef}
+              loading={loading}
+              handleCheckAndRegister={handleCheckAndRegister}
+              handleFileChange={handleFileChange}
+              toggleCameraFacing={toggleCameraFacing}
+              handleBack={handleStudentRegistrationBack}
+              registrationEditStudent={null}
+              handleSaveStudentEdits={handleSaveStudentEdits}
+              registrationMessage={registrationMessage}
+              duplicateRollNoMessage={duplicateRollNoMessage}
+              clearRegistrationMessage={() => setRegistrationMessage(null)}
+            />
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-start justify-start p-6">
         <div className="w-full max-w-md mx-auto">
           <div className="flex flex-col items-center mb-6">
             <img src="/logos/login-logo.png" alt="Login Logo" className="h-33 w-41 object-contain mb-5" />
-            <h2 className="text-center text-xl font-bold text-slate-800">Faculty Portal</h2>
+            <h2 className="text-center text-xl font-bold text-slate-800">
+              {portalMode === 'faculty' ? 'Faculty Portal' : 'Student Portal'}
+            </h2>
           </div>
 
-          <Message />
+          <Message statusMsg={statusMsg} setStatusMsg={setStatusMsg} />
+
+          <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-white p-2 shadow-sm">
+            <button
+              type="button"
+              onClick={() => {
+                setPortalMode('faculty');
+                setStatusMsg(null);
+              }}
+              className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                portalMode === 'faculty' ? 'bg-red-800 text-white' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              Faculty
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPortalMode('student');
+                setStatusMsg(null);
+              }}
+              className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                portalMode === 'student' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              Student
+            </button>
+          </div>
 
           <div className="space-y-4">
-            <div>
-              <input
-                type="text"
-                className="w-full p-4 border rounded-xl text-sm"
-                placeholder="Username"
-                value={loginUser}
-                onChange={e => setLoginUser(e.target.value.toLowerCase())}
-              />
-            </div>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                className="w-full p-4 border rounded-xl text-sm"
-                placeholder="Password"
-                value={loginPass}
-                onChange={e => setLoginPass(e.target.value)}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-3 text-slate-400"
-              >
-                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-              </button>
-            </div>
-
-            <div className="flex items-center justify-between text-sm">
-              <label className="flex items-center gap-2">
+            {portalMode === 'faculty' ? (
+              <div>
                 <input
-                  type="checkbox"
-                  checked={rememberMe}
-                  onChange={e => setRememberMe(e.target.checked)}
+                  type="text"
+                  className="w-full p-4 border rounded-xl text-sm"
+                  placeholder="Username"
+                  value={loginUser}
+                  onChange={e => setLoginUser(e.target.value.toLowerCase())}
                 />
-                <span className="text-slate-600">Remember Me</span>
-              </label>
-              <button
-                onClick={() => { setForgotPasswordMode(true); setStatusMsg(null); setFpStep(1); }}
-                className="text-red-700 hover:underline"
-              >
-                Forgot Password?
-              </button>
-            </div>
+              </div>
+            ) : (
+              <div>
+                <input
+                  type="text"
+                  maxLength={10}
+                  className="w-full p-4 border rounded-xl text-sm uppercase"
+                  placeholder="Roll No"
+                  value={studentLoginRollNo}
+                  onChange={e => setStudentLoginRollNo(e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, ''))}
+                />
+              </div>
+            )}
+            {portalMode === 'faculty' && (
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  className="w-full p-4 border rounded-xl text-sm"
+                  placeholder="Password"
+                  value={loginPass}
+                  onChange={e => setLoginPass(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-3 text-slate-400"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            )}
+
+            {portalMode === 'faculty' ? (
+              <div className="flex items-center justify-between text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={rememberMe}
+                    onChange={e => setRememberMe(e.target.checked)}
+                  />
+                  <span className="text-slate-600">Remember Me</span>
+                </label>
+                <button
+                  onClick={() => { setForgotPasswordMode(true); setStatusMsg(null); setFpStep(1); }}
+                  className="text-red-700 hover:underline"
+                >
+                  Forgot Password?
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={studentRememberMe}
+                    onChange={e => setStudentRememberMe(e.target.checked)}
+                  />
+                  <span>Remember Me</span>
+                </label>
+                <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+                  If your roll number already exists and is approved, you will login directly. If not, your student registration form will open.
+                </div>
+              </div>
+            )}
 
             <button
-              onClick={handleLogin}
+              onClick={portalMode === 'faculty' ? handleLogin : handleStudentLogin}
               disabled={loading}
-              className="w-full bg-red-800 text-white py-4 rounded-xl font-bold mt-3"
+              className={`w-full py-4 rounded-xl font-bold mt-3 text-white ${portalMode === 'faculty' ? 'bg-red-800' : 'bg-slate-900'}`}
             >
               {loading ? 'Verifying...' : 'LOGIN'}
             </button>
@@ -2235,7 +2890,7 @@ export default function App() {
       <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
         <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-2xl w-full max-w-md border-t-8 border-blue-600">
           <h2 className="text-2xl font-bold text-center text-slate-800 mb-6">Reset Password</h2>
-          <Message />
+          <Message statusMsg={statusMsg} setStatusMsg={setStatusMsg} />
 
           {fpStep === 1 && (
             <div className="space-y-4">
@@ -2308,6 +2963,87 @@ export default function App() {
     );
   }
 
+  if (studentUser) {
+    return (
+      <div className="min-h-screen bg-slate-50 pb-10">
+        <Message statusMsg={statusMsg} setStatusMsg={setStatusMsg} />
+        <IDCardModal idCardData={idCardData} onClose={() => setIdCardData(null)} />
+
+        <main className="mx-auto max-w-6xl p-4 sm:p-6">
+          {view === 'register' ? (
+            <RegistrationScreen
+              regMode={regMode}
+              setRegMode={(mode) => {
+                setRegMode(mode);
+                setRegistrationMessage(null);
+              }}
+              regName={regName}
+              setRegName={(value) => {
+                setRegName(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regId={regId}
+              setRegId={(value) => {
+                setRegId(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regBranch={regBranch}
+              setRegBranch={(value) => {
+                setRegBranch(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regYear={regYear}
+              setRegYear={(value) => {
+                setRegYear(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regPhone={regPhone}
+              setRegPhone={(value) => {
+                setRegPhone(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              regEmail={regEmail}
+              setRegEmail={(value) => {
+                setRegEmail(value);
+                if (registrationMessage) setRegistrationMessage(null);
+              }}
+              uploadedImgSrc={uploadedImgSrc}
+              videoRef={videoRef}
+              imgRef={imgRef}
+              loading={loading}
+              handleCheckAndRegister={handleCheckAndRegister}
+              handleFileChange={handleFileChange}
+              toggleCameraFacing={toggleCameraFacing}
+              handleBack={() => setView('student_home')}
+              registrationEditStudent={registrationEditStudent}
+              handleSaveStudentEdits={handleSaveStudentEdits}
+              registrationMessage={registrationMessage}
+              duplicateRollNoMessage={duplicateRollNoMessage}
+              clearRegistrationMessage={() => setRegistrationMessage(null)}
+            />
+          ) : view === 'student_history' ? (
+            <StudentHistoryScreen
+              student={studentUser}
+              attendanceSummary={studentPortalSummary}
+              loading={studentPortalLoading}
+              onBack={() => setView('student_home')}
+            />
+          ) : (
+            <StudentDashboardScreen
+              student={studentUser}
+              attendanceSummary={studentPortalSummary}
+              loading={studentPortalLoading}
+              onOpenHistory={() => setView('student_history')}
+              onOpenIdCard={() => setIdCardData(studentUser)}
+              onEditProfile={handleStudentSelfEdit}
+              onLogout={handleLogout}
+            />
+          )}
+        </main>
+      </div>
+    );
+  }
+
   // ---------- LOGGED-IN VIEW ----------
   return (
     <div className="app-shell min-h-screen bg-slate-50 pb-8">
@@ -2346,6 +3082,8 @@ export default function App() {
             setPromoteYear={setPromoteYear}
             handlePromoteYears={handlePromoteYears}
             handleOpenBranchStudents={handleOpenBranchStudents}
+            handleOpenApprovalQueue={handleOpenApprovalQueue}
+            pendingApprovalCount={pendingStudentApprovals.length}
           />
         )}
 
@@ -2452,8 +3190,12 @@ export default function App() {
             setDatabaseBrowseYear={setDatabaseBrowseYear}
             databaseBrowseBranch={databaseBrowseBranch}
             setDatabaseBrowseBranch={setDatabaseBrowseBranch}
+            branchOptions={browserBranchOptions}
             databaseBrowseResults={databaseBrowseResults}
-            handleEditStudent={openStudentEditor}
+            handleRejectStudent={handleRejectStudent}
+            handleApproveStudent={handleApproveStudent}
+            canApproveStudentProfile={canApproveStudentProfile}
+            showApprovalQueueOnly={showApprovalQueueOnly}
             handleBack={() => navigateToView('home')}
           />
         )}
@@ -2500,6 +3242,7 @@ export default function App() {
         {/* MANAGE USERS */}
         {view === 'manage_users' && (
           <ManageUsersScreen
+            appUser={appUser}
             newUserFirstName={newUserFirstName}
             setNewUserFirstName={setNewUserFirstName}
             newUserLastName={newUserLastName}
@@ -2517,6 +3260,13 @@ export default function App() {
             newUserConfirmPass={newUserConfirmPass}
             setNewUserConfirmPass={setNewUserConfirmPass}
             loading={loading}
+            manageUsersTab={manageUsersTab}
+            setManageUsersTab={setManageUsersTab}
+            allowedDesignationOptions={allowedDesignationOptions}
+            availableDepartmentOptions={availableDepartmentOptions}
+            visibleManagedUsers={visibleManagedUsers}
+            handleToggleUserStatus={handleToggleUserStatus}
+            handleRemoveUser={handleRemoveUser}
             handleCreateStaff={handleCreateStaff}
             setView={navigateToView}
           />
@@ -2582,7 +3332,7 @@ export default function App() {
         setView={navigateToView}
         isOpen={isNavOpen}
         setIsOpen={setIsNavOpen}
-        canManageUsers={['admin', 'principal', 'hod'].includes((appUser?.role || '').toLowerCase())}
+        canManageUsers={['admin', 'principal', 'dean', 'hod'].includes((appUser?.role || '').toLowerCase())}
         appUser={appUser}
         handleLogout={handleLogout}
       />

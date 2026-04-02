@@ -13,9 +13,13 @@ export function DashboardScreen({
   promoteYear,
   setPromoteYear,
   handlePromoteYears,
-  handleOpenBranchStudents
+  handleOpenBranchStudents,
+  handleOpenApprovalQueue,
+  pendingApprovalCount
 }) {
-  const isAdmin = (appUser?.role || '').toLowerCase() === 'admin';
+  const role = (appUser?.role || '').toLowerCase();
+  const isAdmin = role === 'admin';
+  const isHod = role === 'hod';
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -80,15 +84,19 @@ export function DashboardScreen({
         </div>
       </div>
 
-      <div className={`grid grid-cols-1 ${isAdmin ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3`}>
-        <button onClick={() => setView('register')} className="bg-white p-4 rounded-xl shadow text-left hover:shadow-lg transition">
-          <div className="font-bold">Register Student</div>
-          <div className="text-xs text-slate-500">Add new student profile</div>
-        </button>
+      <div className={`grid grid-cols-1 ${(isAdmin || isHod) ? 'sm:grid-cols-3' : 'sm:grid-cols-2'} gap-3`}>
         <button onClick={handleDashboardStartAttendance} className="bg-white p-4 rounded-xl shadow text-left hover:shadow-lg transition">
           <div className="font-bold">Take Attendance</div>
           <div className="text-xs text-slate-500">Start live scan</div>
         </button>
+        {isHod && (
+          <button onClick={handleOpenApprovalQueue} className="bg-white p-4 rounded-xl shadow text-left hover:shadow-lg transition">
+            <div className="font-bold">Student Approvals</div>
+            <div className="text-xs text-slate-500">
+              {pendingApprovalCount > 0 ? `${pendingApprovalCount} students waiting for approval` : 'No pending approvals'}
+            </div>
+          </button>
+        )}
         {isAdmin && (
           <div className="bg-white p-4 rounded-xl shadow hover:shadow-lg transition">
             <div className="font-bold">Upgrade Year</div>
