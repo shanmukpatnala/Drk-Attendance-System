@@ -1,9 +1,15 @@
 import React, { useRef } from 'react';
-import { ArrowLeft, Camera, Image as ImageIcon, Pencil, User, X } from 'lucide-react';
+import { ArrowLeft, Camera, Image as ImageIcon, User, X } from 'lucide-react';
 
 export function ProfileScreen({
   appUser,
   profileEditMode,
+  profilePhotoDirty,
+  setProfileEditMode,
+  profileName,
+  setProfileName,
+  profileUsername,
+  setProfileUsername,
   profileEmail,
   setProfileEmail,
   profilePhone,
@@ -18,10 +24,20 @@ export function ProfileScreen({
   handleRemoveProfilePhoto,
   handleSaveProfile,
   handleCancelProfileEdit,
+  profileCurrentPassword,
+  setProfileCurrentPassword,
+  profileNewPassword,
+  setProfileNewPassword,
+  profileConfirmPassword,
+  setProfileConfirmPassword,
+  profilePasswordErrors,
+  handleOpenDetailsEdit,
   handleBack,
 }) {
   const galleryInputRef = useRef(null);
   const cameraInputRef = useRef(null);
+  const canEditDepartment = !['admin', 'dean', 'principal'].includes((appUser?.role || '').toLowerCase());
+  const showActionButtons = profileEditMode || profilePhotoDirty;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -48,37 +64,56 @@ export function ProfileScreen({
               <User className="w-7 h-7" />
             </div>
           )}
-          <span className="absolute bottom-0 right-0 rounded-full bg-white p-1 text-red-700 shadow">
-            <Pencil className="h-3 w-3" />
-          </span>
         </button>
         <div className="flex-1">
           <h2 className="font-bold text-xl">{appUser.name}</h2>
-          <div className="text-sm uppercase">{appUser.role}</div>
+          <div className="text-sm uppercase">{appUser.designation || appUser.role}</div>
         </div>
+        <button
+          type="button"
+          onClick={handleOpenProfilePhotoActions}
+          className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white"
+        >
+          Edit Photo
+        </button>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow border">
         <div className="flex justify-between items-center mb-3">
           <h3 className="font-semibold text-slate-600">Faculty Details</h3>
-          {profileEditMode && (
-            <div className="text-xs text-slate-500">Photo is auto-cropped to a square preview.</div>
+          {showActionButtons ? (
+            <div className="flex gap-2">
+              <button onClick={handleSaveProfile} className="bg-blue-600 text-white px-4 py-2 rounded">Save Changes</button>
+              <button onClick={handleCancelProfileEdit} className="border px-4 py-2 rounded">Cancel</button>
+            </div>
+          ) : (
+            <button onClick={handleOpenDetailsEdit} className="border px-4 py-2 rounded text-sm">
+              Edit Details
+            </button>
           )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div><div className="text-xs text-slate-400">Name</div><div className="font-medium">{appUser.name}</div></div>
-          <div><div className="text-xs text-slate-400">Username</div><div className="font-medium">{appUser.username}</div></div>
-          <div><div className="text-xs text-slate-400">Role</div><div className="font-medium">{appUser.role}</div></div>
           <div>
-            <div className="text-xs text-slate-400">Department</div>
-            {profileEditMode ? (
-              <select className="w-full p-2 border rounded" value={profileDept} onChange={e => setProfileDept(e.target.value)}>
-                <option value="">Select Department</option>
-                <option value="CSE">CSE</option><option value="CSM">CSM</option><option value="CSD">CSD</option><option value="CSC">CSC</option><option value="ECE">ECE</option><option value="EEE">EEE</option><option value="MECH">MECH</option><option value="CIVIL">CIVIL</option>
-              </select>
-            ) : <div className="font-medium">{appUser.department || 'N/A'}</div>}
+            <div className="text-xs text-slate-400">Name</div>
+            {profileEditMode ? <input value={profileName} onChange={e => setProfileName(e.target.value)} className="w-full p-2 border rounded" /> : <div className="font-medium">{appUser.name}</div>}
           </div>
+          <div>
+            <div className="text-xs text-slate-400">Username</div>
+            {profileEditMode ? <input value={profileUsername} onChange={e => setProfileUsername(e.target.value.toLowerCase())} className="w-full p-2 border rounded" /> : <div className="font-medium">{appUser.username}</div>}
+          </div>
+          <div><div className="text-xs text-slate-400">Role</div><div className="font-medium">{appUser.designation || appUser.role}</div></div>
+          {canEditDepartment && (
+            <div>
+              <div className="text-xs text-slate-400">Department</div>
+              {profileEditMode ? (
+                <select className="w-full p-2 border rounded" value={profileDept} onChange={e => setProfileDept(e.target.value)}>
+                  <option value="">Select Department</option>
+                  <option value="CSE">CSE</option><option value="CSM">CSM</option><option value="CSD">CSD</option><option value="CSC">CSC</option><option value="ECE">ECE</option><option value="EEE">EEE</option><option value="MECH">MECH</option><option value="CIVIL">CIVIL</option>
+                </select>
+              ) : <div className="font-medium">{appUser.department || 'N/A'}</div>}
+            </div>
+          )}
           <div>
             <div className="text-xs text-slate-400">Email</div>
             {profileEditMode ? <input value={profileEmail} onChange={e => setProfileEmail(e.target.value)} className="w-full p-2 border rounded" /> : <div className="font-medium break-all">{appUser.email || 'Not linked'}</div>}
@@ -90,9 +125,41 @@ export function ProfileScreen({
         </div>
 
         {profileEditMode && (
-          <div className="flex gap-3 mt-5">
-            <button onClick={handleSaveProfile} className="bg-blue-600 text-white px-4 py-2 rounded">Save Changes</button>
-            <button onClick={handleCancelProfileEdit} className="border px-4 py-2 rounded">Cancel</button>
+          <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <h4 className="font-semibold text-slate-700">Change Password</h4>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div>
+                <input
+                  type="password"
+                  value={profileCurrentPassword}
+                  onChange={e => setProfileCurrentPassword(e.target.value)}
+                  className={`w-full p-2 border rounded ${profilePasswordErrors.current ? 'border-red-400' : ''}`}
+                  placeholder="Current Password"
+                />
+                {profilePasswordErrors.current && <p className="mt-1 text-xs text-red-600">{profilePasswordErrors.current}</p>}
+              </div>
+              <div>
+                <input
+                  type="password"
+                  value={profileNewPassword}
+                  onChange={e => setProfileNewPassword(e.target.value)}
+                  className={`w-full p-2 border rounded ${profilePasswordErrors.next ? 'border-red-400' : ''}`}
+                  placeholder="New Password"
+                />
+                {profilePasswordErrors.next && <p className="mt-1 text-xs text-red-600">{profilePasswordErrors.next}</p>}
+              </div>
+              <div>
+                <input
+                  type="password"
+                  value={profileConfirmPassword}
+                  onChange={e => setProfileConfirmPassword(e.target.value)}
+                  className={`w-full p-2 border rounded ${profilePasswordErrors.confirm ? 'border-red-400' : ''}`}
+                  placeholder="Confirm Password"
+                />
+                {profilePasswordErrors.confirm && <p className="mt-1 text-xs text-red-600">{profilePasswordErrors.confirm}</p>}
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Leave these blank if you only want to update profile details.</p>
           </div>
         )}
       </div>
@@ -154,7 +221,7 @@ export function ProfileScreen({
                 }}
                 className="flex w-full items-center gap-3 rounded-xl border border-slate-200 px-4 py-3 text-left text-sm font-medium text-slate-700 transition hover:border-red-200 hover:text-red-700"
               >
-                <Pencil className="h-5 w-5" />
+                <User className="h-5 w-5" />
                 Remove Photo
               </button>
             </div>
