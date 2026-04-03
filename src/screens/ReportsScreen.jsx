@@ -13,6 +13,7 @@ const REPORT_YEAR_OPTIONS = [
 export function ReportsScreen({
   reportDate,
   setReportDate,
+  maxReportDate,
   reportBranch,
   setReportBranch,
   reportYear,
@@ -25,6 +26,19 @@ export function ReportsScreen({
 }) {
   const [selectedStudent, setSelectedStudent] = useState(null);
   const canViewPhoto = (student) => student?.status === 'Present' && Boolean(student?.photo);
+  const handleDateChange = (value) => {
+    if (!value) {
+      setReportDate(value);
+      return;
+    }
+
+    if (maxReportDate && value > maxReportDate) {
+      setReportDate(maxReportDate);
+      return;
+    }
+
+    setReportDate(value);
+  };
 
   const reportCounts = useMemo(() => ({
     present: (reportData || []).filter(r => r.status === 'Present').length,
@@ -47,7 +61,13 @@ export function ReportsScreen({
         <div className="grid grid-cols-1 sm:grid-cols-6 gap-3 mt-3 items-end">
           <div className="sm:col-span-2">
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Date</label>
-            <input type="date" className="w-full p-2 border rounded" value={reportDate} onChange={e => setReportDate(e.target.value)} />
+            <input
+              type="date"
+              max={maxReportDate}
+              className="w-full p-2 border rounded"
+              value={reportDate}
+              onChange={e => handleDateChange(e.target.value)}
+            />
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Branch</label>

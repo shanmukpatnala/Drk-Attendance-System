@@ -8,6 +8,8 @@ import { auth, signInAnonymously, onAuthStateChanged, serverTimestamp, collectio
 import { hashPassword, safeData, getTodayDateId, compressImage, formatTime, isValidRollNo, getDateIdsInRange, sanitizeRollNoInput } from './utils/helpers';
 import { appId, FACE_API_SCRIPT, MODEL_URL, EMAILJS_SERVICE_ID, EMAILJS_REPORT_TEMPLATE_ID, EMAILJS_PUBLIC_KEY, SHOW_EMAIL_BUTTON, appConfig } from './app/constants';
 import { performLogin as performLoginHandler, performStudentLogin as performStudentLoginHandler, handleSendResetLink as handleSendResetLinkHandler, handleChangePassword as handleChangePasswordHandler, verifyResetToken as verifyResetTokenHandler } from './app/authHandlers';
+import { createStaffHandler, createRemoveUserHandler, createToggleUserStatusHandler, getManageUsersAccessState } from './app/manageUsersHandlers';
+import { createCancelProfileEditHandler, createOpenProfilePhotoActionsHandler, createRemoveProfilePhotoHandler, createSaveProfileHandler, handleProfilePhotoChange as handleProfilePhotoChangeHandler } from './app/profileHandlers';
 
 // Screen components
 import { DashboardScreen, RegistrationScreen, AttendanceScreen, ReportsScreen, DatabaseScreen, StudentBrowserScreen, HistoryScreen, ProfileScreen, ManageUsersScreen, StudentDashboardScreen, StudentHistoryScreen } from './screens';
@@ -138,11 +140,22 @@ export default function App() {
 
   // Profile edit
   const [profileEditMode, setProfileEditMode] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profileUsername, setProfileUsername] = useState('');
   const [profileEmail, setProfileEmail] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
   const [profileDept, setProfileDept] = useState('');
   const [profilePhotoPreview, setProfilePhotoPreview] = useState(null);
+  const [profilePhotoDirty, setProfilePhotoDirty] = useState(false);
   const [showProfilePhotoActions, setShowProfilePhotoActions] = useState(false);
+  const [profileCurrentPassword, setProfileCurrentPassword] = useState('');
+  const [profileNewPassword, setProfileNewPassword] = useState('');
+  const [profileConfirmPassword, setProfileConfirmPassword] = useState('');
+  const [profilePasswordErrors, setProfilePasswordErrors] = useState({
+    current: '',
+    next: '',
+    confirm: ''
+  });
 
   // Attendance sets
   const [markedToday, setMarkedToday] = useState(new Set());
@@ -341,10 +354,13 @@ export default function App() {
 
   useEffect(() => {
     if (!appUser) return;
+    setProfileName(appUser.name || '');
+    setProfileUsername(appUser.username || '');
     setProfileEmail(appUser.email || '');
     setProfilePhone(appUser.phone || '');
     setProfileDept(appUser.department || '');
     setProfilePhotoPreview(appUser.photo || null);
+    setProfilePhotoDirty(false);
     setShowProfilePhotoActions(false);
   }, [appUser]);
 
@@ -358,7 +374,7 @@ export default function App() {
       return;
     }
 
-    if (role === 'dean') {
+    if (role === 'dean' || role === 'principal') {
       setNewUserDesignation((currentValue) => (
         currentValue === 'Dean' || currentValue === 'Principal' ? 'HOD' : currentValue || 'HOD'
       ));
@@ -1544,7 +1560,7 @@ export default function App() {
     setNewUserEmail('');
     setNewUserDept(currentUserRole === 'hod' ? currentUserDepartment : 'CSE');
     setNewUserDesignation(
-      currentUserRole === 'admin' ? 'Dean' : currentUserRole === 'dean' ? 'HOD' : 'Faculty'
+      currentUserRole === 'admin' ? 'Dean' : ['dean', 'principal'].includes(currentUserRole) ? 'HOD' : 'Faculty'
     );
     setNewUserPass('');
     setNewUserConfirmPass('');
@@ -1762,6 +1778,14 @@ export default function App() {
   // (supports 'All' for branch/year)
   // -------------------------------------------------------------------
   const handleGenerateReport = async () => {
+    const todayDateId = getTodayDateId();
+    if (reportDate && reportDate > todayDateId) {
+      setReportDate(todayDateId);
+      setReportData(null);
+      setStatusMsg({ type: 'warning', text: `Future dates are not allowed. Report date reset to ${todayDateId}.` });
+      return;
+    }
+
     // allow "All" selection
     const branchFilter = reportBranch === 'All' ? null : reportBranch;
     const yearFilter = reportYear === 'All' ? null : reportYear;
@@ -2311,68 +2335,18 @@ export default function App() {
     ? `This roll number is already used by ${duplicateRollNoStudent.name || 'another student'}.`
     : '';
 
-  const currentUserRole = (appUser?.role || '').trim().toLowerCase();
-  const currentUserDepartment = (appUser?.department || '').trim().toUpperCase();
-  const normalizedNewUserDept = (newUserDept || '').trim().toUpperCase();
-  const normalizedNewUserDesignation = (newUserDesignation || '').trim().toLowerCase();
-
-  const baseDesignationOptions = currentUserRole === 'admin'
-    ? ['Dean', 'Principal', 'HOD', 'Faculty']
-    : ['dean', 'principal'].includes(currentUserRole)
-      ? ['HOD', 'Faculty']
-      : currentUserRole === 'hod'
-        ? ['Faculty']
-        : [];
-
-  const deanExists = staffUsers.some(
-    (user) => (user?.role || '').trim().toLowerCase() === 'dean'
-  );
-  const principalExists = staffUsers.some(
-    (user) => (user?.role || '').trim().toLowerCase() === 'principal'
-  );
-  const hodDepartments = new Set(
-    staffUsers
-      .filter((user) => (user?.role || '').trim().toLowerCase() === 'hod')
-      .map((user) => ((user?.department || '').trim().toUpperCase()))
-      .filter(Boolean)
-  );
-  const allDepartmentOptions = ['CSE', 'CSM', 'CSD', 'CSC', 'ECE', 'EEE', 'MECH', 'CIVIL'];
-  const availableHodDepartments = allDepartmentOptions.filter((department) => !hodDepartments.has(department));
-  const selectedDepartmentHasHod = staffUsers.some((user) => (
-    (user?.role || '').trim().toLowerCase() === 'hod'
-    && ((user?.department || '').trim().toUpperCase() === normalizedNewUserDept)
-  ));
-
-  const allowedDesignationOptions = baseDesignationOptions.filter((designation) => {
-    const normalizedDesignation = designation.toLowerCase();
-
-    if (normalizedDesignation === 'dean' && deanExists) return false;
-    if (normalizedDesignation === 'principal' && principalExists) return false;
-    if (normalizedDesignation === 'hod' && availableHodDepartments.length === 0) return false;
-
-    return true;
+  const {
+    currentUserRole,
+    currentUserDepartment,
+    allowedDesignationOptions,
+    availableDepartmentOptions,
+    visibleManagedUsers
+  } = getManageUsersAccessState({
+    appUser,
+    staffUsers,
+    newUserDept,
+    newUserDesignation
   });
-
-  const visibleManagedUsers = staffUsers
-    .filter((user) => {
-      if (currentUserRole === 'admin' || currentUserRole === 'dean') return true;
-      if (currentUserRole === 'hod') {
-        return ((user?.department || '').trim().toUpperCase() === currentUserDepartment)
-          && (user?.role || '').trim().toLowerCase() === 'faculty';
-      }
-      return false;
-    })
-    .sort((left, right) => {
-      const roleCompare = (left?.role || '').localeCompare(right?.role || '');
-      if (roleCompare !== 0) return roleCompare;
-      return (left?.name || '').localeCompare(right?.name || '');
-    });
-
-  const availableDepartmentOptions = normalizedNewUserDesignation === 'hod'
-    ? ['admin', 'dean', 'principal'].includes(currentUserRole)
-      ? availableHodDepartments
-      : allDepartmentOptions
-    : allDepartmentOptions;
 
   useEffect(() => {
     if (!allowedDesignationOptions.length) return;
@@ -2391,265 +2365,105 @@ export default function App() {
   // -------------------------------------------------------------------
   // Add staff
   // -------------------------------------------------------------------
-  const handleCreateStaff = async () => {
-    if (!appUser) {
-      setStatusMsg({ type: 'error', text: 'Login required to create users.' });
-      return;
-    }
+  const handleCreateStaff = createStaffHandler({
+    appUser,
+    allowedDesignationOptions,
+    currentUserDepartment,
+    currentUserRole,
+    db,
+    newUserConfirmPass,
+    newUserDept,
+    newUserDesignation,
+    newUserEmail,
+    newUserFirstName,
+    newUserLastName,
+    newUserPass,
+    newUserUser,
+    setManageUsersTab,
+    setNewUserConfirmPass,
+    setNewUserDept,
+    setNewUserDesignation,
+    setNewUserEmail,
+    setNewUserFirstName,
+    setNewUserLastName,
+    setNewUserPass,
+    setNewUserUser,
+    setStatusMsg,
+    staffUsers
+  });
 
-    if (!allowedDesignationOptions.includes(newUserDesignation)) {
-      setStatusMsg({ type: 'error', text: 'You are not allowed to create this role.' });
-      return;
-    }
+  const handleToggleUserStatus = createToggleUserStatusHandler({
+    appUser,
+    currentUserRole,
+    db,
+    setStatusMsg
+  });
 
-    if (
-      !newUserFirstName ||
-      !newUserLastName ||
-      !newUserUser ||
-      !newUserEmail ||
-      !newUserDesignation ||
-      !newUserPass ||
-      !newUserConfirmPass
-    ) {
-      setStatusMsg({ type: 'error', text: "Fill all fields" });
-      return;
-    }
-    if (newUserPass.length < 8) {
-      setStatusMsg({ type: 'error', text: "Password must be at least 8 characters" });
-      return;
-    }
-    if (newUserPass !== newUserConfirmPass) {
-      setStatusMsg({ type: 'error', text: "Password and Confirm Password do not match" });
-      return;
-    }
-
-    try {
-      const fullName = `${newUserFirstName} ${newUserLastName}`.trim();
-      const normalizedUsername = newUserUser.trim().toLowerCase();
-      const normalizedEmail = newUserEmail.trim().toLowerCase();
-      const designationLabel = newUserDesignation.trim();
-      const roleToSave = designationLabel.toLowerCase();
-      const needsDepartment = !['dean', 'principal'].includes(roleToSave);
-      const departmentToSave = needsDepartment
-        ? (currentUserRole === 'hod' ? currentUserDepartment : normalizedNewUserDept)
-        : '';
-
-      if (needsDepartment && !departmentToSave) {
-        setStatusMsg({ type: 'error', text: 'Select a department.' });
-        return;
-      }
-
-      if (currentUserRole === 'hod' && departmentToSave !== currentUserDepartment) {
-        setStatusMsg({ type: 'error', text: 'HOD can create faculty only for their own branch.' });
-        return;
-      }
-
-      const existingUsername = staffUsers.find(
-        (user) => (user?.username || '').trim().toLowerCase() === normalizedUsername
-      );
-      if (existingUsername) {
-        setStatusMsg({ type: 'error', text: 'This username already exists. Use a different username.' });
-        return;
-      }
-
-      const existingEmail = staffUsers.find(
-        (user) => (user?.email || '').trim().toLowerCase() === normalizedEmail
-      );
-      if (existingEmail) {
-        setStatusMsg({ type: 'error', text: 'This email already exists. Use a different email.' });
-        return;
-      }
-
-      if (roleToSave === 'principal') {
-        const principalExists = staffUsers.some(
-          (user) => (user?.role || '').trim().toLowerCase() === 'principal'
-        );
-        if (principalExists) {
-          setStatusMsg({ type: 'error', text: 'Principal account already exists. Cannot create another principal.' });
-          return;
-        }
-      }
-
-      if (roleToSave === 'dean') {
-        const deanExists = staffUsers.some(
-          (user) => (user?.role || '').trim().toLowerCase() === 'dean'
-        );
-        if (deanExists) {
-          setStatusMsg({ type: 'error', text: 'Dean account already exists. Cannot create another dean.' });
-          return;
-        }
-      }
-
-      if (roleToSave === 'hod') {
-        const existingHod = staffUsers.find((user) => (
-          (user?.role || '').trim().toLowerCase() === 'hod'
-          && ((user?.department || '').trim().toUpperCase() === departmentToSave)
-        ));
-        if (existingHod) {
-          setStatusMsg({ type: 'error', text: `${departmentToSave} HOD already exists. Cannot create another HOD for this branch.` });
-          return;
-        }
-      }
-
-      const hashed = await hashPassword(newUserPass);
-
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'app_users'), {
-        username: normalizedUsername,
-        password: hashed,
-        role: roleToSave,
-        name: fullName,
-        department: departmentToSave,
-        designation: designationLabel,
-        email: normalizedEmail,
-        active: true,
-        status: 'active',
-        createdBy: appUser?.username,
-        createdAt: serverTimestamp()
-      });
-
-      setStatusMsg({ type: 'success', text: `${designationLabel} account for ${fullName} created successfully.` });
-
-      setNewUserFirstName('');
-      setNewUserLastName('');
-      setNewUserUser('');
-      setNewUserEmail('');
-      setNewUserDept(currentUserRole === 'hod' ? currentUserDepartment : 'CSE');
-      setNewUserDesignation(allowedDesignationOptions[0] || 'Faculty');
-      setNewUserPass('');
-      setNewUserConfirmPass('');
-      setManageUsersTab('list');
-    } catch (err) {
-      console.error(err);
-      setStatusMsg({ type: 'error', text: "Failed to create staff" });
-    }
-  };
-
-  const handleToggleUserStatus = async (user) => {
-    if (currentUserRole !== 'admin' || !user?.id) {
-      setStatusMsg({ type: 'error', text: 'Only admin can activate or deactivate users.' });
-      return;
-    }
-
-    if (user.id === appUser?.id) {
-      setStatusMsg({ type: 'error', text: 'You cannot deactivate your own account.' });
-      return;
-    }
-
-    const currentlyActive = user?.active !== false && (user?.status || 'active').toLowerCase() !== 'inactive';
-    const nextActive = !currentlyActive;
-
-    try {
-      await updateDoc(
-        doc(db, 'artifacts', appId, 'public', 'data', 'app_users', user.id),
-        {
-          active: nextActive,
-          status: nextActive ? 'active' : 'inactive',
-          updatedAt: serverTimestamp(),
-          updatedBy: appUser?.username || 'admin'
-        }
-      );
-      setStatusMsg({
-        type: 'success',
-        text: `${user.name || user.username} ${nextActive ? 'activated' : 'deactivated'} successfully.`
-      });
-    } catch (error) {
-      console.error('toggle user status error', error);
-      setStatusMsg({ type: 'error', text: 'Failed to update user status.' });
-    }
-  };
-
-  const handleRemoveUser = async (user) => {
-    if (currentUserRole !== 'admin' || !user?.id) {
-      setStatusMsg({ type: 'error', text: 'Only admin can remove users.' });
-      return;
-    }
-
-    if (user.id === appUser?.id) {
-      setStatusMsg({ type: 'error', text: 'You cannot remove your own account.' });
-      return;
-    }
-
-    try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', user.id));
-      setStatusMsg({ type: 'success', text: `${user.name || user.username} removed successfully.` });
-    } catch (error) {
-      console.error('remove user error', error);
-      setStatusMsg({ type: 'error', text: 'Failed to remove user.' });
-    }
-  };
+  const handleRemoveUser = createRemoveUserHandler({
+    appUser,
+    currentUserRole,
+    db,
+    setStatusMsg
+  });
 
   // -------------------------------------------------------------------
   // Profile edit handlers
   // -------------------------------------------------------------------
-  const handleProfilePhotoChange = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleProfilePhotoChange = (e) => handleProfilePhotoChangeHandler({
+    e,
+    setProfilePhotoDirty,
+    setProfilePhotoPreview
+  });
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const image = new Image();
-      image.onload = () => {
-        const size = Math.min(image.width, image.height);
-        const sx = Math.max(0, (image.width - size) / 2);
-        const sy = Math.max(0, (image.height - size) / 2);
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
+  const handleOpenProfilePhotoActions = createOpenProfilePhotoActionsHandler({
+    setShowProfilePhotoActions
+  });
 
-        if (!ctx) return;
+  const handleRemoveProfilePhoto = createRemoveProfilePhotoHandler({
+    setProfilePhotoDirty,
+    setProfilePhotoPreview
+  });
 
-        canvas.width = size;
-        canvas.height = size;
-        ctx.drawImage(image, sx, sy, size, size, 0, 0, size, size);
-        setProfilePhotoPreview(canvas.toDataURL('image/jpeg', 0.9));
-        setProfileEditMode(true);
-      };
-      image.src = reader.result;
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
+  const handleSaveProfile = createSaveProfileHandler({
+    appUser,
+    db,
+    profileName,
+    profileUsername,
+    profileEmail,
+    profilePhone,
+    profileDept,
+    profilePhotoPreview,
+    profileCurrentPassword,
+    profileNewPassword,
+    profileConfirmPassword,
+    setAppUser,
+    setProfileCurrentPassword,
+    setProfileNewPassword,
+    setProfileConfirmPassword,
+    setProfileEditMode,
+    setProfilePhotoDirty,
+    setShowProfilePhotoActions,
+    setProfilePasswordErrors,
+    setStatusMsg,
+    staffUsers
+  });
 
-  const handleOpenProfilePhotoActions = () => {
-    setProfileEditMode(true);
-    setShowProfilePhotoActions(true);
-  };
-
-  const handleRemoveProfilePhoto = () => {
-    setProfileEditMode(true);
-    setProfilePhotoPreview(null);
-  };
-
-  const handleSaveProfile = async () => {
-    if (!appUser) return;
-    try {
-      const userRef = doc(db, 'artifacts', appId, 'public', 'data', 'app_users', appUser.id);
-      const updateData = {
-        email: profileEmail,
-        phone: profilePhone,
-        department: profileDept
-      };
-      updateData.photo = profilePhotoPreview || '';
-
-      await updateDoc(userRef, updateData);
-      setAppUser(prev => prev ? { ...prev, ...updateData } : prev);
-      setStatusMsg({ type: 'success', text: 'Profile updated successfully' });
-      setProfileEditMode(false);
-      setShowProfilePhotoActions(false);
-    } catch (err) {
-      console.error(err);
-      setStatusMsg({ type: 'error', text: 'Failed to update profile' });
-    }
-  };
-
-  const handleCancelProfileEdit = () => {
-    if (!appUser) return;
-    setProfileEditMode(false);
-    setProfileEmail(appUser.email || '');
-    setProfilePhone(appUser.phone || '');
-    setProfileDept(appUser.department || '');
-    setProfilePhotoPreview(appUser.photo || null);
-    setShowProfilePhotoActions(false);
-  };
+  const handleCancelProfileEdit = createCancelProfileEditHandler({
+    appUser,
+    setProfileConfirmPassword,
+    setProfileCurrentPassword,
+    setProfileEditMode,
+    setProfilePhotoDirty,
+    setProfileEmail,
+    setProfileName,
+    setProfileNewPassword,
+    setProfilePasswordErrors,
+    setProfilePhone,
+    setProfilePhotoPreview,
+    setProfileDept,
+    setProfileUsername,
+    setShowProfilePhotoActions
+  });
 
   // -------------------------------------------------------------------
   // Small Message component
@@ -3151,6 +2965,7 @@ export default function App() {
             reportYear={reportYear}
             setReportYear={setReportYear}
             reportData={reportData}
+            maxReportDate={getTodayDateId()}
             handleGenerateReport={handleGenerateReport}
             handleDownloadReport={handleDownloadReport}
             loading={loading}
@@ -3221,6 +3036,12 @@ export default function App() {
           <ProfileScreen
             appUser={appUser}
             profileEditMode={profileEditMode}
+            profilePhotoDirty={profilePhotoDirty}
+            setProfileEditMode={setProfileEditMode}
+            profileName={profileName}
+            setProfileName={setProfileName}
+            profileUsername={profileUsername}
+            setProfileUsername={setProfileUsername}
             profileEmail={profileEmail}
             setProfileEmail={setProfileEmail}
             profilePhone={profilePhone}
@@ -3235,6 +3056,23 @@ export default function App() {
             handleRemoveProfilePhoto={handleRemoveProfilePhoto}
             handleSaveProfile={handleSaveProfile}
             handleCancelProfileEdit={handleCancelProfileEdit}
+            profileCurrentPassword={profileCurrentPassword}
+            setProfileCurrentPassword={(value) => {
+              setProfileCurrentPassword(value);
+              setProfilePasswordErrors((prev) => ({ ...prev, current: '' }));
+            }}
+            profileNewPassword={profileNewPassword}
+            setProfileNewPassword={(value) => {
+              setProfileNewPassword(value);
+              setProfilePasswordErrors((prev) => ({ ...prev, next: '' }));
+            }}
+            profileConfirmPassword={profileConfirmPassword}
+            setProfileConfirmPassword={(value) => {
+              setProfileConfirmPassword(value);
+              setProfilePasswordErrors((prev) => ({ ...prev, confirm: '' }));
+            }}
+            profilePasswordErrors={profilePasswordErrors}
+            handleOpenDetailsEdit={() => setProfileEditMode(true)}
             handleBack={() => navigateToView('home')}
           />
         )}
