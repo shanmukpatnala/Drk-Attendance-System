@@ -4,6 +4,8 @@ import { ArrowLeft, Timer, RefreshCw, CheckCircle, ChevronUp, ChevronDown, ScanL
 export function AttendanceScreen({
   attStep,
   videoRef,
+  attendanceOverlay,
+  cameraStreamActive,
   continuousScanActive,
   markedToday,
   students,
@@ -103,6 +105,72 @@ export function AttendanceScreen({
 
                 <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-[28px] border border-slate-800 bg-slate-950 shadow-2xl">
                   <video ref={videoRef} autoPlay muted playsInline className="h-full w-full scale-x-[-1] object-cover" />
+                  {!cameraStreamActive && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/92">
+                      <div className="text-center text-white">
+                        <p className="text-sm font-semibold">Camera is off</p>
+                        <p className="mt-1 text-xs text-slate-300">Start a session to scan again.</p>
+                      </div>
+                    </div>
+                  )}
+                  {attendanceOverlay?.sourceWidth > 0 && attendanceOverlay?.sourceHeight > 0 && (
+                    <svg
+                      viewBox={`0 0 ${attendanceOverlay.sourceWidth} ${attendanceOverlay.sourceHeight}`}
+                      preserveAspectRatio="xMidYMid slice"
+                      className="pointer-events-none absolute inset-0 h-full w-full scale-x-[-1]"
+                    >
+                      {attendanceOverlay.boxes.map((box) => {
+                        const color =
+                          box.status === 'recognized'
+                            ? '#22c55e'
+                            : box.status === 'already-marked'
+                              ? '#f59e0b'
+                              : '#ef4444';
+
+                        const statusLabel =
+                          box.status === 'recognized'
+                            ? 'Recognized'
+                            : box.status === 'already-marked'
+                              ? 'Already marked'
+                              : 'Unknown';
+
+                        return (
+                          <g key={box.id}>
+                            <rect
+                              x={box.x}
+                              y={box.y}
+                              width={box.width}
+                              height={box.height}
+                              rx="14"
+                              fill="none"
+                              stroke={color}
+                              strokeWidth="6"
+                            />
+                            <g transform={`translate(${box.x}, ${Math.max(28, box.y - 18)}) scale(-1, 1)`}>
+                              <rect
+                                x={-Math.min(Math.max(box.width, 120), 220)}
+                                y="-28"
+                                width={Math.min(Math.max(box.width, 120), 220)}
+                                height="28"
+                                rx="10"
+                                fill="rgba(15, 23, 42, 0.86)"
+                              />
+                              <text
+                                x={-12}
+                                y="-10"
+                                textAnchor="end"
+                                fill="#f8fafc"
+                                fontSize="14"
+                                fontWeight="700"
+                              >
+                                {`${statusLabel}: ${box.label}`}
+                              </text>
+                            </g>
+                          </g>
+                        );
+                      })}
+                    </svg>
+                  )}
                   <div className="pointer-events-none absolute inset-x-6 inset-y-5 rounded-[26px] border border-white/20"></div>
                   <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
                     Auto detect + auto mark

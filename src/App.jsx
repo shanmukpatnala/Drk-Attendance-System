@@ -21,8 +21,8 @@ import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal, Al
 import { Header, BottomNav, Message } from './components';
 
 const CAMERA_CONSTRAINTS = {
-  width: { ideal: 480 },
-  height: { ideal: 270 },
+  width: { ideal: 1280 },
+  height: { ideal: 720 },
   frameRate: { ideal: 24, max: 30 }
 };
 
@@ -32,12 +32,13 @@ const ATTENDANCE_RECHECK_THRESHOLD = 0.5;
 const ATTENDANCE_RECHECK_AMBIGUITY_GAP = 0.02;
 const UNKNOWN_FACE_CONFIRMATION_COUNT = 3;
 const ALREADY_PRESENT_POPUP_COOLDOWN_MS = 8000;
+const MULTI_FACE_INTERRUPT_THRESHOLD = 2;
 const ATTENDANCE_DETECTOR_OPTIONS = {
-  inputSize: 128,
-  scoreThreshold: 0.3
+  inputSize: 320,
+  scoreThreshold: 0.2
 };
 
-const ATTENDANCE_PROCESSING_WIDTH = 320;
+const ATTENDANCE_PROCESSING_WIDTH = 640;
 
 const UNKNOWN_FACE_SIGNATURE_PRECISION = 1;
 const UNKNOWN_FACE_SKIP_COOLDOWN_MS = 5000;
@@ -53,6 +54,7 @@ export default function App() {
   const [appUser, setAppUser] = useState(null);
   const [studentUser, setStudentUser] = useState(null);
   const [portalMode, setPortalMode] = useState('faculty');
+  const [showAdminCreateForm, setShowAdminCreateForm] = useState(false);
 
   // Login
   const [loginUser, setLoginUser] = useState('');
@@ -100,6 +102,11 @@ export default function App() {
   // Attendance Session
   const [attStep, setAttStep] = useState('setup'); // setup | camera
   const [continuousScanActive, setContinuousScanActive] = useState(false);
+  const [attendanceOverlay, setAttendanceOverlay] = useState({
+    boxes: [],
+    sourceWidth: 0,
+    sourceHeight: 0
+  });
 
   // Reports
   const [reportDate, setReportDate] = useState(getTodayDateId());
@@ -137,6 +144,7 @@ export default function App() {
   const scanCanvasRef = useRef(null);
   const scanSourceMetaRef = useRef(null);
   const [cameraFacing, setCameraFacing] = useState('user'); // 'user' | 'environment'
+  const [cameraStreamActive, setCameraStreamActive] = useState(false);
 
   // Profile edit
   const [profileEditMode, setProfileEditMode] = useState(false);
@@ -405,6 +413,8 @@ export default function App() {
       videoRef.current.srcObject.getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
+    setCameraStreamActive(false);
+    setContinuousScanActive(false);
   };
 
   const startVideo = () => {
@@ -420,11 +430,13 @@ export default function App() {
           videoRef.current.srcObject = stream;
           videoRef.current.onloadedmetadata = () => {
             videoRef.current?.play?.().catch(() => {});
+            setCameraStreamActive(true);
           };
         }
       })
       .catch(err => {
         console.error("Camera error:", err);
+        setCameraStreamActive(false);
         setStatusMsg({ type: 'error', text: "Cannot access camera: " + err.message });
       });
   };
@@ -435,14 +447,17 @@ export default function App() {
 
   useEffect(() => {
     const registrationAccessAllowed = Boolean(appUser) || studentSelfRegisterMode;
+    const attendanceAccessAllowed = Boolean(appUser);
 
-    if (!modelsLoaded || !registrationAccessAllowed) {
+    if (!modelsLoaded) {
       stopVideo();
       return;
     }
 
-    const shouldStartRegisterCamera = view === 'register' && regMode === 'live';
-    const shouldStartAttendanceCamera = view === 'attendance' && attStep === 'camera';
+    const shouldStartRegisterCamera =
+      view === 'register' && regMode === 'live' && registrationAccessAllowed;
+    const shouldStartAttendanceCamera =
+      view === 'attendance' && attStep === 'camera' && attendanceAccessAllowed;
 
     if (shouldStartRegisterCamera || shouldStartAttendanceCamera) {
       startVideo();
@@ -451,6 +466,27 @@ export default function App() {
     }
     // eslint-disable-next-line
   }, [view, modelsLoaded, attStep, regMode, appUser, studentSelfRegisterMode, cameraFacing]);
+
+  useEffect(() => {
+    const handlePageHide = () => {
+      stopVideo();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopVideo();
+      }
+    };
+
+    window.addEventListener('pagehide', handlePageHide);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageHide);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      stopVideo();
+    };
+  }, []);
 
   
 
@@ -633,7 +669,9 @@ export default function App() {
       setRegEmail('');
       setUploadedImgSrc(null);
       setRegStep('details');
+      setRegMode('none');
       setOverwriteModal(null);
+      stopVideo();
       return true;
     } catch (err) {
       console.error(err);
@@ -652,10 +690,36 @@ export default function App() {
       .join('|');
   };
 
+  const isCanvasSnapshotBlank = (canvas) => {
+    if (!canvas || canvas.width < 2 || canvas.height < 2) return true;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return true;
+
+    try {
+      const sampleWidth = Math.max(1, Math.min(canvas.width, 24));
+      const sampleHeight = Math.max(1, Math.min(canvas.height, 24));
+      const pixels = ctx.getImageData(0, 0, sampleWidth, sampleHeight).data;
+
+      for (let i = 0; i < pixels.length; i += 4) {
+        const alpha = pixels[i + 3];
+        const brightness = pixels[i] + pixels[i + 1] + pixels[i + 2];
+        if (alpha > 0 && brightness > 24) {
+          return false;
+        }
+      }
+    } catch (error) {
+      console.warn('snapshot validation failed', error);
+      return false;
+    }
+
+    return true;
+  };
+
   const captureFaceFromDetection = (faceDescription) => {
     const video = videoRef.current;
     const box = faceDescription?.detection?.box;
-    if (!video || !box) return null;
+    if (!video || !box || video.readyState < 2) return null;
 
     const sourceWidth = video.videoWidth;
     const sourceHeight = video.videoHeight;
@@ -687,7 +751,13 @@ export default function App() {
     canvas.width = sw;
     canvas.height = sh;
     ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-    return canvas.toDataURL('image/jpeg', 0.82);
+
+    if (!isCanvasSnapshotBlank(canvas)) {
+      return canvas.toDataURL('image/jpeg', 0.82);
+    }
+
+    const fallbackPhoto = compressImage(video);
+    return fallbackPhoto || null;
   };
 
   const promptUnknownFaceRegistration = async (faceDescription) => {
@@ -789,9 +859,130 @@ export default function App() {
       branch: student.branch || '',
       year: student.year || '',
       facePhoto: facePhoto || todayLog?.facePhoto || student.photo || '',
+      fallbackPhoto: student.photo || '',
       timeIn: todayLog?.timeIn || '',
       dateId: todayId
     });
+  };
+
+  const resetFacultySignupForm = () => {
+    setNewUserFirstName('');
+    setNewUserLastName('');
+    setNewUserUser('');
+    setNewUserEmail('');
+    setNewUserDept('CSE');
+    setNewUserDesignation('Faculty');
+    setNewUserPass('');
+    setNewUserConfirmPass('');
+  };
+
+  const handleAdminBootstrap = async () => {
+    const firstName = newUserFirstName.trim();
+    const lastName = newUserLastName.trim();
+    const username = newUserUser.trim().toLowerCase();
+    const email = newUserEmail.trim().toLowerCase();
+    const existingAdminUser = staffUsers.find(
+      (user) => (user?.role || '').trim().toLowerCase() === 'admin'
+    );
+    const matchingUser = staffUsers.find(
+      (user) => (
+        ((user?.username || '').trim().toLowerCase() === username)
+        || ((user?.email || '').trim().toLowerCase() === email)
+      )
+    );
+    const bootstrapTargetUser = matchingUser || existingAdminUser || null;
+
+    if (!firstName || !lastName || !username || !email || !newUserPass || !newUserConfirmPass) {
+      setStatusMsg({ type: 'error', text: 'Fill all admin account fields.' });
+      return;
+    }
+
+    if (newUserPass.length < 8) {
+      setStatusMsg({ type: 'error', text: 'Password must be at least 8 characters.' });
+      return;
+    }
+
+    if (newUserPass !== newUserConfirmPass) {
+      setStatusMsg({ type: 'error', text: 'Password and confirm password do not match.' });
+      return;
+    }
+
+    const usernameExists = staffUsers.some(
+      (user) => user?.id !== bootstrapTargetUser?.id
+        && (user?.username || '').trim().toLowerCase() === username
+    );
+    if (usernameExists) {
+      setStatusMsg({ type: 'error', text: 'This username already exists. Use a different username.' });
+      return;
+    }
+
+    const emailExists = staffUsers.some(
+      (user) => user?.id !== bootstrapTargetUser?.id
+        && (user?.email || '').trim().toLowerCase() === email
+    );
+    if (emailExists) {
+      setStatusMsg({ type: 'error', text: 'This email already exists. Use a different email.' });
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const hashedPassword = await hashPassword(newUserPass);
+      const adminPayload = {
+        username,
+        password: hashedPassword,
+        role: 'admin',
+        designation: 'Admin',
+        name: `${firstName} ${lastName}`.trim(),
+        department: '',
+        email,
+        active: true,
+        status: 'active'
+      };
+
+      if (bootstrapTargetUser?.id) {
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', bootstrapTargetUser.id), {
+          ...adminPayload,
+          updatedBy: 'bootstrap',
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'app_users'), {
+          ...adminPayload,
+          createdBy: 'bootstrap',
+          createdAt: serverTimestamp()
+        });
+      }
+
+      if (existingAdminUser?.id && bootstrapTargetUser?.id && existingAdminUser.id !== bootstrapTargetUser.id) {
+        await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'app_users', existingAdminUser.id), {
+          role: 'faculty',
+          designation: 'Faculty',
+          active: false,
+          status: 'inactive',
+          updatedBy: 'bootstrap',
+          updatedAt: serverTimestamp()
+        });
+      }
+
+      setLoginUser(username);
+      setLoginPass('');
+      setRememberMe(false);
+      setShowAdminCreateForm(false);
+      resetFacultySignupForm();
+      setStatusMsg({
+        type: 'success',
+        text: bootstrapTargetUser?.id
+          ? 'Your account was updated as admin. You can login now.'
+          : 'Admin account created successfully. You can login now.'
+      });
+    } catch (error) {
+      console.error('Admin bootstrap error', error);
+      setStatusMsg({ type: 'error', text: 'Failed to create admin account.' });
+    } finally {
+      setLoading(false);
+    }
   };
 
   // check and register: uses face-api only when regMode==='live' and regStep==='camera'
@@ -1174,15 +1365,63 @@ export default function App() {
     return canvas;
   };
 
+  const clearAttendanceOverlay = () => {
+    setAttendanceOverlay({
+      boxes: [],
+      sourceWidth: 0,
+      sourceHeight: 0
+    });
+  };
+
+  const updateAttendanceOverlay = (faceResults = []) => {
+    const sourceMeta = scanSourceMetaRef.current;
+    const video = videoRef.current;
+    const sourceWidth = sourceMeta?.sourceWidth || video?.videoWidth || 0;
+    const sourceHeight = sourceMeta?.sourceHeight || video?.videoHeight || 0;
+
+    if (!sourceWidth || !sourceHeight || !faceResults.length) {
+      clearAttendanceOverlay();
+      return;
+    }
+
+    const scaleX = sourceMeta?.processedWidth ? sourceWidth / sourceMeta.processedWidth : 1;
+    const scaleY = sourceMeta?.processedHeight ? sourceHeight / sourceMeta.processedHeight : 1;
+
+    setAttendanceOverlay({
+      sourceWidth,
+      sourceHeight,
+      boxes: faceResults
+        .map(({ detection, status, student, distance }) => {
+          const box = detection?.detection?.box;
+          if (!box) return null;
+
+          return {
+            id: `${student?.studentId || status}-${Math.round(box.x)}-${Math.round(box.y)}`,
+            x: box.x * scaleX,
+            y: box.y * scaleY,
+            width: box.width * scaleX,
+            height: box.height * scaleY,
+            label: student?.name || student?.studentId || 'Unknown face',
+            status,
+            distance
+          };
+        })
+        .filter(Boolean)
+    });
+  };
+
   const runScanner = async () => {
     if (scanInProgressRef.current) return;
     if (view !== 'attendance' || attStep !== 'camera' || !modelsLoaded) return;
     if (unidentifiedFaceModalRef.current) return;
 
     if (!videoRef.current || videoRef.current.readyState < 2) {
+      setContinuousScanActive(false);
       scheduleNextScan(400);
       return;
     }
+
+    setContinuousScanActive(true);
 
     const faceapi = window.faceapi;
     if (!faceapi) {
@@ -1230,12 +1469,15 @@ export default function App() {
         .withFaceDescriptors();
 
       if (!detections?.length) {
+        clearAttendanceOverlay();
         scheduleNextScan(120);
         return;
       }
 
+      const isMultiFaceFrame = detections.length >= MULTI_FACE_INTERRUPT_THRESHOLD;
+
       if (!faceMatcherRef.current) {
-        const prompted = await promptUnknownFaceRegistration(detections[0]);
+        const prompted = !isMultiFaceFrame && await promptUnknownFaceRegistration(detections[0]);
         if (prompted) return;
         scheduleNextScan(150);
         return;
@@ -1243,11 +1485,18 @@ export default function App() {
 
       const recognizedStudents = [];
       let shouldPromptUnknownFace = false;
+      const faceResults = [];
 
       for (const det of detections) {
         const best = resolveAttendanceMatch(det.descriptor);
         if (!best) {
-          if (!shouldPromptUnknownFace) {
+          faceResults.push({
+            detection: det,
+            status: 'unknown',
+            student: null,
+            distance: null
+          });
+          if (!isMultiFaceFrame && !shouldPromptUnknownFace) {
             shouldPromptUnknownFace = await promptUnknownFaceRegistration(det);
           }
           continue;
@@ -1259,14 +1508,30 @@ export default function App() {
 
         const facePhoto = captureFaceFromDetection(det);
         if (markedTodayRef.current.has(sid) || localMarkedRef.current.has(sid)) {
-          openAlreadyPresentModal(st, facePhoto);
+          faceResults.push({
+            detection: det,
+            status: 'already-marked',
+            student: st,
+            distance: best.distance
+          });
+          if (!isMultiFaceFrame) {
+            openAlreadyPresentModal(st, facePhoto);
+          }
           continue;
         }
 
         unknownFaceCandidateCountsRef.current.delete(buildUnknownFaceSignature(det.descriptor));
         localMarkedRef.current.add(sid);
+        faceResults.push({
+          detection: det,
+          status: 'recognized',
+          student: st,
+          distance: best.distance
+        });
         recognizedStudents.push({ student: st, facePhoto });
       }
+
+      updateAttendanceOverlay(faceResults);
 
       if (recognizedStudents.length) {
         setMarkedToday(prev => {
@@ -1292,6 +1557,7 @@ export default function App() {
       scheduleNextScan(recognizedStudents.length ? 80 : 120);
     } catch (err) {
       console.error('scan error', err);
+      clearAttendanceOverlay();
       scheduleNextScan(180);
     } finally {
       scanInProgressRef.current = false;
@@ -1314,9 +1580,9 @@ export default function App() {
         scanInProgressRef.current = false;
         runScanner();
       })();
-      setContinuousScanActive(true);
     } else {
       setContinuousScanActive(false);
+      clearAttendanceOverlay();
       faceMatcherRef.current = null;
       studentMapRef.current = null;
       studentDescriptorSignatureRef.current = '';
@@ -1816,7 +2082,14 @@ export default function App() {
         const presentLog = todayLog && todayLog.status && todayLog.status.includes('Present') ? todayLog : null;
         const timeIn = presentLog ? (presentLog.timeIn || 'N/A') : 'N/A';
         const status = presentLog ? 'Present' : 'Absent';
-        return { ...st, photo: presentLog ? (presentLog.facePhoto || '') : '', status, timeIn, date: dateId };
+        return {
+          ...st,
+          photo: presentLog ? (presentLog.facePhoto || '') : '',
+          fallbackPhoto: st.photo || '',
+          status,
+          timeIn,
+          date: dateId
+        };
       });
 
       setReportData(report);
@@ -2554,6 +2827,7 @@ export default function App() {
               }}
               uploadedImgSrc={uploadedImgSrc}
               videoRef={videoRef}
+              cameraStreamActive={cameraStreamActive}
               imgRef={imgRef}
               loading={loading}
               handleCheckAndRegister={handleCheckAndRegister}
@@ -2588,6 +2862,7 @@ export default function App() {
               type="button"
               onClick={() => {
                 setPortalMode('faculty');
+                setShowAdminCreateForm(false);
                 setStatusMsg(null);
               }}
               className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
@@ -2600,6 +2875,7 @@ export default function App() {
               type="button"
               onClick={() => {
                 setPortalMode('student');
+                setShowAdminCreateForm(false);
                 setStatusMsg(null);
               }}
               className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
@@ -2612,15 +2888,107 @@ export default function App() {
 
           <div className="space-y-4">
             {portalMode === 'faculty' ? (
-              <div>
-                <input
-                  type="text"
-                  className="w-full p-4 border rounded-xl text-sm"
-                  placeholder="Username"
-                  value={loginUser}
-                  onChange={e => setLoginUser(e.target.value.toLowerCase())}
-                />
-              </div>
+              <>
+                {!showAdminCreateForm ? (
+                  <>
+                    <div>
+                      <input
+                        type="text"
+                        className="w-full p-4 border rounded-xl text-sm"
+                        placeholder="Username"
+                        value={loginUser}
+                        onChange={e => setLoginUser(e.target.value.toLowerCase())}
+                      />
+                    </div>
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        className="w-full p-4 border rounded-xl text-sm"
+                        placeholder="Password"
+                        value={loginPass}
+                        onChange={e => setLoginPass(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-3 text-slate-400"
+                      >
+                        {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAdminCreateForm(true);
+                        setStatusMsg(null);
+                      }}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-red-200 hover:text-red-700"
+                    >
+                      Create Admin Account
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+                      Create your admin account here. After that, use Faculty Login as usual.
+                    </div>
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <input
+                        type="text"
+                        className="w-full p-4 border rounded-xl text-sm"
+                        placeholder="First Name"
+                        value={newUserFirstName}
+                        onChange={e => setNewUserFirstName(e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        className="w-full p-4 border rounded-xl text-sm"
+                        placeholder="Last Name"
+                        value={newUserLastName}
+                        onChange={e => setNewUserLastName(e.target.value)}
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      className="w-full p-4 border rounded-xl text-sm"
+                      placeholder="Choose Username"
+                      value={newUserUser}
+                      onChange={e => setNewUserUser(e.target.value.toLowerCase())}
+                    />
+                    <input
+                      type="email"
+                      className="w-full p-4 border rounded-xl text-sm"
+                      placeholder="Email"
+                      value={newUserEmail}
+                      onChange={e => setNewUserEmail(e.target.value)}
+                    />
+                    <input
+                      type="password"
+                      className="w-full p-4 border rounded-xl text-sm"
+                      placeholder="Password"
+                      value={newUserPass}
+                      onChange={e => setNewUserPass(e.target.value)}
+                    />
+                    <input
+                      type="password"
+                      className="w-full p-4 border rounded-xl text-sm"
+                      placeholder="Confirm Password"
+                      value={newUserConfirmPass}
+                      onChange={e => setNewUserConfirmPass(e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAdminCreateForm(false);
+                        setStatusMsg(null);
+                      }}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300"
+                    >
+                      Back To Faculty Login
+                    </button>
+                  </>
+                )}
+              </>
             ) : (
               <div>
                 <input
@@ -2633,26 +3001,7 @@ export default function App() {
                 />
               </div>
             )}
-            {portalMode === 'faculty' && (
-              <div className="relative">
-                <input
-                  type={showPassword ? "text" : "password"}
-                  className="w-full p-4 border rounded-xl text-sm"
-                  placeholder="Password"
-                  value={loginPass}
-                  onChange={e => setLoginPass(e.target.value)}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-4 top-3 text-slate-400"
-                >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                </button>
-              </div>
-            )}
-
-            {portalMode === 'faculty' ? (
+            {portalMode === 'faculty' && !showAdminCreateForm ? (
               <div className="flex items-center justify-between text-sm">
                 <label className="flex items-center gap-2">
                   <input
@@ -2686,11 +3035,19 @@ export default function App() {
             )}
 
             <button
-              onClick={portalMode === 'faculty' ? handleLogin : handleStudentLogin}
+              onClick={
+                portalMode === 'faculty'
+                  ? (showAdminCreateForm ? handleAdminBootstrap : handleLogin)
+                  : handleStudentLogin
+              }
               disabled={loading}
               className={`w-full py-4 rounded-xl font-bold mt-3 text-white ${portalMode === 'faculty' ? 'bg-red-800' : 'bg-slate-900'}`}
             >
-              {loading ? 'Verifying...' : 'LOGIN'}
+              {loading
+                ? (portalMode === 'faculty' && showAdminCreateForm ? 'Creating...' : 'Verifying...')
+                : portalMode === 'faculty'
+                  ? (showAdminCreateForm ? 'CREATE ADMIN ACCOUNT' : 'LOGIN')
+                  : 'LOGIN'}
             </button>
           </div>
         </div>
@@ -2823,6 +3180,7 @@ export default function App() {
               }}
               uploadedImgSrc={uploadedImgSrc}
               videoRef={videoRef}
+              cameraStreamActive={cameraStreamActive}
               imgRef={imgRef}
               loading={loading}
               handleCheckAndRegister={handleCheckAndRegister}
@@ -2941,6 +3299,7 @@ export default function App() {
             }}
             uploadedImgSrc={uploadedImgSrc}
             videoRef={videoRef}
+            cameraStreamActive={cameraStreamActive}
             imgRef={imgRef}
             loading={loading}
             handleCheckAndRegister={handleCheckAndRegister}
@@ -2979,6 +3338,8 @@ export default function App() {
             attStep={attStep}
             setAttStep={setAttStep}
             videoRef={videoRef}
+            attendanceOverlay={attendanceOverlay}
+            cameraStreamActive={cameraStreamActive}
             continuousScanActive={continuousScanActive}
             markedToday={markedToday}
             students={students}

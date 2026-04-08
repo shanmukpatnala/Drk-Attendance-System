@@ -25,7 +25,18 @@ export function ReportsScreen({
   handleBack,
 }) {
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const canViewPhoto = (student) => student?.status === 'Present' && Boolean(student?.photo);
+  const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
+  const hasPhotoValue = (value) => typeof value === 'string' && value.trim().length > 0;
+  const canViewPhoto = (student) =>
+    student?.status === 'Present' && (hasPhotoValue(student?.photo) || hasPhotoValue(student?.fallbackPhoto));
+
+  const getModalPhotoSrc = () => {
+    if (!selectedStudent) return '';
+    if (!photoLoadFailed && hasPhotoValue(selectedStudent.photo)) return selectedStudent.photo;
+    if (hasPhotoValue(selectedStudent.fallbackPhoto)) return selectedStudent.fallbackPhoto;
+    return '';
+  };
+
   const handleDateChange = (value) => {
     if (!value) {
       setReportDate(value);
@@ -117,7 +128,10 @@ export function ReportsScreen({
                     key={student.id || student.studentId}
                     className={`border-b ${canViewPhoto(student) ? 'cursor-pointer hover:bg-slate-50' : ''}`}
                     onClick={() => {
-                      if (canViewPhoto(student)) setSelectedStudent(student);
+                      if (canViewPhoto(student)) {
+                        setPhotoLoadFailed(false);
+                        setSelectedStudent(student);
+                      }
                     }}
                   >
                     <td className="p-2 font-mono">{student.studentId}</td>
@@ -161,11 +175,16 @@ export function ReportsScreen({
 
             <div className="grid gap-4 p-4 sm:grid-cols-[220px_1fr]">
               <div className="overflow-hidden rounded-xl border bg-slate-50">
-                {selectedStudent.photo ? (
-                  <img src={selectedStudent.photo} alt={selectedStudent.name} className="h-full w-full object-cover" />
+                {getModalPhotoSrc() ? (
+                  <img
+                    src={getModalPhotoSrc()}
+                    alt={selectedStudent.name}
+                    className="h-full w-full object-cover"
+                    onError={() => setPhotoLoadFailed(true)}
+                  />
                 ) : (
                   <div className="flex h-64 items-center justify-center px-4 text-center text-sm text-slate-500">
-                    No live attendance photo available for this student.
+                    No attendance photo is available for this student.
                   </div>
                 )}
               </div>

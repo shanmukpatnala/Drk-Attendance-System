@@ -1,8 +1,16 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { CheckCircle2, X } from 'lucide-react';
 
 export function AlreadyPresentModal({ detail, onClose }) {
+  const [photoLoadFailed, setPhotoLoadFailed] = useState(false);
   if (!detail) return null;
+
+  const hasPhotoValue = (value) => typeof value === 'string' && value.trim().length > 0;
+  const photoSrc = useMemo(() => {
+    if (!photoLoadFailed && hasPhotoValue(detail.facePhoto)) return detail.facePhoto;
+    if (hasPhotoValue(detail.fallbackPhoto)) return detail.fallbackPhoto;
+    return '';
+  }, [detail.facePhoto, detail.fallbackPhoto, photoLoadFailed]);
 
   return (
     <div className="fixed inset-0 z-[175] flex items-center justify-center bg-black/60 p-4">
@@ -22,8 +30,13 @@ export function AlreadyPresentModal({ detail, onClose }) {
 
         <div className="grid gap-4 p-5 md:grid-cols-[170px_minmax(0,1fr)]">
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
-            {detail.facePhoto ? (
-              <img src={detail.facePhoto} alt={detail.name || 'Student'} className="h-full w-full object-cover" />
+            {photoSrc ? (
+              <img
+                src={photoSrc}
+                alt={detail.name || 'Student'}
+                className="h-full w-full object-cover"
+                onError={() => setPhotoLoadFailed(true)}
+              />
             ) : (
               <div className="flex h-full min-h-40 items-center justify-center text-sm text-slate-400">No photo</div>
             )}

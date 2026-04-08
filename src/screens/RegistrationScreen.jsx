@@ -19,6 +19,7 @@ export function RegistrationScreen({
   setRegEmail,
   uploadedImgSrc,
   videoRef,
+  cameraStreamActive,
   imgRef,
   loading,
   handleCheckAndRegister,
@@ -107,6 +108,13 @@ export function RegistrationScreen({
           {regMode === 'live' ? (
             <>
               <video ref={videoRef} autoPlay muted className="w-full h-full object-cover" />
+              {!cameraStreamActive && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/90 px-6 text-center">
+                  <Camera className="mb-3 h-10 w-10 text-slate-300" />
+                  <p className="text-lg font-semibold text-white">Camera is off</p>
+                  <p className="mt-2 text-sm text-slate-300">Choose camera again when you want to continue.</p>
+                </div>
+              )}
               <button onClick={toggleCameraFacing} className="absolute top-3 right-3 bg-black/40 text-white text-xs px-3 py-1 rounded-full">
                 Switch Camera
               </button>
