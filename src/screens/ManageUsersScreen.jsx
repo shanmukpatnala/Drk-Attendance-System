@@ -103,7 +103,7 @@ export function ManageUsersScreen({
                 </div>
 
                 <input type="text" className="w-full rounded-lg border p-3" value={newUserUser} onChange={e => setNewUserUser(e.target.value.toLowerCase())} placeholder="Username" />
-                <input type="email" className="w-full rounded-lg border p-3" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} placeholder="Email" />
+                <input type="email" className="w-full rounded-lg border p-3" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} placeholder="Email (optional)" />
 
                 <div className={`grid grid-cols-1 gap-3 ${hideDepartmentField ? '' : 'sm:grid-cols-2'}`}>
                   {!hideDepartmentField && (

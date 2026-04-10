@@ -21,23 +21,37 @@ import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal, Al
 import { Header, BottomNav, Message } from './components';
 
 const CAMERA_CONSTRAINTS = {
-  width: { ideal: 480 },
-  height: { ideal: 270 },
+  width: { ideal: 1920, max: 1920 },
+  height: { ideal: 1080, max: 1080 },
   frameRate: { ideal: 24, max: 30 }
 };
 
-const ATTENDANCE_MATCH_THRESHOLD = 0.42;
-const ATTENDANCE_AMBIGUITY_GAP = 0.035;
-const ATTENDANCE_RECHECK_THRESHOLD = 0.5;
-const ATTENDANCE_RECHECK_AMBIGUITY_GAP = 0.02;
+const MOBILENET_MIN_CONFIDENCE = 0.4;
+const ATTENDANCE_MATCH_THRESHOLD = 0.4;
+const ATTENDANCE_AMBIGUITY_GAP = 0.06;
+const ATTENDANCE_RECHECK_THRESHOLD = 0.42;
+const ATTENDANCE_RECHECK_AMBIGUITY_GAP = 0.04;
+const ATTENDANCE_MIN_DETECTION_SCORE = 0.82;
+const ATTENDANCE_MIN_FACE_SIZE = 90;
+const ATTENDANCE_MIN_FACE_AREA_RATIO = 0.015;
+const ATTENDANCE_FRAME_MARGIN_RATIO = 0.03;
+const ATTENDANCE_CROWD_MIN_DETECTION_SCORE = 0.58;
+const ATTENDANCE_CROWD_MIN_FACE_SIZE = 56;
+const ATTENDANCE_CROWD_MIN_FACE_AREA_RATIO = 0.0035;
+const ATTENDANCE_CROWD_FRAME_MARGIN_RATIO = 0.015;
+const DUPLICATE_FACE_MATCH_THRESHOLD = 0.4;
+const DUPLICATE_FACE_REJECT_DISTANCE = 0.42;
 const UNKNOWN_FACE_CONFIRMATION_COUNT = 3;
 const ALREADY_PRESENT_POPUP_COOLDOWN_MS = 8000;
 const ATTENDANCE_DETECTOR_OPTIONS = {
-  inputSize: 128,
-  scoreThreshold: 0.3
+  inputSize: 608,
+  scoreThreshold: 0.12
 };
 
-const ATTENDANCE_PROCESSING_WIDTH = 320;
+const ATTENDANCE_PROCESSING_WIDTH = 1920;
+const ATTENDANCE_BULK_SCAN_MIN_FACES = 10;
+const ATTENDANCE_MAX_FACES_PER_SCAN = 60;
+const ATTENDANCE_UNKNOWN_PROMPT_MAX_FACES = 4;
 
 const UNKNOWN_FACE_SIGNATURE_PRECISION = 1;
 const UNKNOWN_FACE_SKIP_COOLDOWN_MS = 5000;
@@ -690,7 +704,47 @@ export default function App() {
     return canvas.toDataURL('image/jpeg', 0.82);
   };
 
+  const isReliableAttendanceDetection = (faceDescription, facesInFrame = 1) => {
+    const box = faceDescription?.detection?.box;
+    const detectionScore = faceDescription?.detection?.score || 0;
+    const meta = scanSourceMetaRef.current;
+    const frameWidth = meta?.processedWidth || videoRef.current?.videoWidth || 0;
+    const frameHeight = meta?.processedHeight || videoRef.current?.videoHeight || 0;
+    const isCrowdFrame = facesInFrame >= ATTENDANCE_BULK_SCAN_MIN_FACES;
+    const minDetectionScore = isCrowdFrame
+      ? ATTENDANCE_CROWD_MIN_DETECTION_SCORE
+      : ATTENDANCE_MIN_DETECTION_SCORE;
+    const minFaceSize = isCrowdFrame
+      ? ATTENDANCE_CROWD_MIN_FACE_SIZE
+      : ATTENDANCE_MIN_FACE_SIZE;
+    const minFaceAreaRatio = isCrowdFrame
+      ? ATTENDANCE_CROWD_MIN_FACE_AREA_RATIO
+      : ATTENDANCE_MIN_FACE_AREA_RATIO;
+    const frameMarginRatio = isCrowdFrame
+      ? ATTENDANCE_CROWD_FRAME_MARGIN_RATIO
+      : ATTENDANCE_FRAME_MARGIN_RATIO;
+
+    if (!box || !frameWidth || !frameHeight) return false;
+    if (detectionScore < minDetectionScore) return false;
+    if (box.width < minFaceSize || box.height < minFaceSize) return false;
+
+    const faceAreaRatio = (box.width * box.height) / (frameWidth * frameHeight);
+    if (faceAreaRatio < minFaceAreaRatio) return false;
+
+    const marginX = frameWidth * frameMarginRatio;
+    const marginY = frameHeight * frameMarginRatio;
+    const isTouchingFrameEdge = (
+      box.x <= marginX
+      || box.y <= marginY
+      || (box.x + box.width) >= (frameWidth - marginX)
+      || (box.y + box.height) >= (frameHeight - marginY)
+    );
+
+    return !isTouchingFrameEdge;
+  };
+
   const promptUnknownFaceRegistration = async (faceDescription) => {
+    if (!isReliableAttendanceDetection(faceDescription)) return false;
     if (Date.now() < unknownFaceSkipUntilRef.current) return false;
 
     const signature = buildUnknownFaceSignature(faceDescription?.descriptor);
@@ -827,7 +881,7 @@ export default function App() {
       const detections = await faceapi
         .detectSingleFace(
           inputSource,
-          new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 })
+          new faceapi.SsdMobilenetv1Options({ minConfidence: MOBILENET_MIN_CONFIDENCE })
         )
         .withFaceLandmarks()
         .withFaceDescriptor();
@@ -854,10 +908,9 @@ export default function App() {
         );
 
       if (labeledDescriptors.length > 0) {
-        const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.3);
+        const matcher = new faceapi.FaceMatcher(labeledDescriptors, DUPLICATE_FACE_MATCH_THRESHOLD);
         const best = matcher.findBestMatch(detections.descriptor);
-        // Only reject if distance is very low (close match)
-        if (best.label !== 'unknown' && best.distance < 0.5) {
+        if (best.label !== 'unknown' && best.distance < DUPLICATE_FACE_REJECT_DISTANCE) {
           const existingFaceStudent = students.find(s => s.studentId === best.label);
           setRegistrationMessage({
             type: 'error',
@@ -1074,7 +1127,10 @@ export default function App() {
     });
 
     const detection = await window.faceapi
-      .detectSingleFace(image, new window.faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+      .detectSingleFace(
+        image,
+        new window.faceapi.SsdMobilenetv1Options({ minConfidence: MOBILENET_MIN_CONFIDENCE })
+      )
       .withFaceLandmarks()
       .withFaceDescriptor();
 
@@ -1147,6 +1203,7 @@ export default function App() {
 
     const sourceWidth = video.videoWidth;
     const sourceHeight = video.videoHeight;
+    console.log(`Video dimensions: ${sourceWidth}x${sourceHeight}`);
     if (!sourceWidth || !sourceHeight) return video;
 
     if (!scanCanvasRef.current) {
@@ -1154,9 +1211,9 @@ export default function App() {
     }
 
     const canvas = scanCanvasRef.current;
-    const scale = Math.min(1, ATTENDANCE_PROCESSING_WIDTH / sourceWidth);
-    const width = Math.max(160, Math.round(sourceWidth * scale));
-    const height = Math.max(120, Math.round(sourceHeight * scale));
+    const targetWidth = Math.min(sourceWidth, ATTENDANCE_PROCESSING_WIDTH);
+    const width = targetWidth;
+    const height = Math.round((sourceHeight / sourceWidth) * width);
 
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
@@ -1229,25 +1286,50 @@ export default function App() {
         .withFaceLandmarks()
         .withFaceDescriptors();
 
+      console.log(`Detected ${detections?.length || 0} faces`);
+
       if (!detections?.length) {
         scheduleNextScan(120);
         return;
       }
 
+      const prioritizedDetections = [...detections]
+        .filter(det => isReliableAttendanceDetection(det, detections.length))
+        .sort((left, right) => (right?.detection?.score || 0) - (left?.detection?.score || 0))
+        .slice(0, ATTENDANCE_MAX_FACES_PER_SCAN);
+      const bulkScanMode = prioritizedDetections.length >= ATTENDANCE_BULK_SCAN_MIN_FACES;
+      const allowUnknownPrompt = !bulkScanMode && prioritizedDetections.length <= ATTENDANCE_UNKNOWN_PROMPT_MAX_FACES;
+
+      if (!prioritizedDetections.length) {
+        scheduleNextScan(120);
+        return;
+      }
+
       if (!faceMatcherRef.current) {
-        const prompted = await promptUnknownFaceRegistration(detections[0]);
+        if (!allowUnknownPrompt) {
+          setStatusMsg({
+            type: 'info',
+            text: `Detected ${prioritizedDetections.length} faces. Waiting for registered face data to finish loading.`
+          });
+          scheduleNextScan(150);
+          return;
+        }
+
+        const prompted = await promptUnknownFaceRegistration(prioritizedDetections[0]);
         if (prompted) return;
         scheduleNextScan(150);
         return;
       }
 
       const recognizedStudents = [];
+      const bestDetectionByStudent = new Map();
       let shouldPromptUnknownFace = false;
 
-      for (const det of detections) {
+      for (const det of prioritizedDetections) {
+        if (!isReliableAttendanceDetection(det, prioritizedDetections.length)) continue;
         const best = resolveAttendanceMatch(det.descriptor);
         if (!best) {
-          if (!shouldPromptUnknownFace) {
+          if (allowUnknownPrompt && !shouldPromptUnknownFace) {
             shouldPromptUnknownFace = await promptUnknownFaceRegistration(det);
           }
           continue;
@@ -1258,17 +1340,32 @@ export default function App() {
         if (!st || st.year === 'Passed Out') continue;
 
         const facePhoto = captureFaceFromDetection(det);
+        if (!facePhoto) continue;
         if (markedTodayRef.current.has(sid) || localMarkedRef.current.has(sid)) {
-          openAlreadyPresentModal(st, facePhoto);
+          if (!bulkScanMode) {
+            openAlreadyPresentModal(st, facePhoto);
+          }
           continue;
         }
 
         unknownFaceCandidateCountsRef.current.delete(buildUnknownFaceSignature(det.descriptor));
-        localMarkedRef.current.add(sid);
-        recognizedStudents.push({ student: st, facePhoto });
+        const existingCandidate = bestDetectionByStudent.get(sid);
+        if (!existingCandidate || best.distance < existingCandidate.distance) {
+          bestDetectionByStudent.set(sid, {
+            student: st,
+            facePhoto,
+            distance: best.distance
+          });
+        }
+      }
+
+      for (const { student, facePhoto } of bestDetectionByStudent.values()) {
+        localMarkedRef.current.add(student.studentId);
+        recognizedStudents.push({ student, facePhoto });
       }
 
       if (recognizedStudents.length) {
+        console.log(`Recognized ${recognizedStudents.length} students:`, recognizedStudents.map(r => r.student.name));
         setMarkedToday(prev => {
           const next = new Set(prev);
           recognizedStudents.forEach(({ student }) => next.add(student.studentId));
@@ -1281,7 +1378,9 @@ export default function App() {
 
         setStatusMsg({
           type: 'success',
-          text: `Marked ${recognizedStudents.length} present in under 5 seconds`
+          text: bulkScanMode
+            ? `Group scan marked ${recognizedStudents.length} students from ${prioritizedDetections.length} detected faces`
+            : `Marked ${recognizedStudents.length} present in under 5 seconds`
         });
       }
 
@@ -1289,7 +1388,15 @@ export default function App() {
         return;
       }
 
-      scheduleNextScan(recognizedStudents.length ? 80 : 120);
+      scheduleNextScan(
+        prioritizedDetections.length >= ATTENDANCE_BULK_SCAN_MIN_FACES
+          ? 40
+          : recognizedStudents.length > 5
+            ? 50
+            : recognizedStudents.length
+              ? 80
+              : 120
+      );
     } catch (err) {
       console.error('scan error', err);
       scheduleNextScan(180);
@@ -1368,7 +1475,10 @@ export default function App() {
 
         // Very aggressive detection - catch even partial/angled faces
         const detections = await faceapi
-          .detectAllFaces(videoRef.current, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.35 }))
+          .detectAllFaces(
+            videoRef.current,
+            new faceapi.SsdMobilenetv1Options({ minConfidence: MOBILENET_MIN_CONFIDENCE })
+          )
           .withFaceDescriptors();
 
         if (!detections || !detections.length) {
@@ -1726,7 +1836,10 @@ export default function App() {
       });
 
       const detections = await faceapi
-        .detectSingleFace(img, new faceapi.SsdMobilenetv1Options({ minConfidence: 0.3 }))
+        .detectSingleFace(
+          img,
+          new faceapi.SsdMobilenetv1Options({ minConfidence: MOBILENET_MIN_CONFIDENCE })
+        )
         .withFaceLandmarks()
         .withFaceDescriptor();
 
@@ -1744,9 +1857,9 @@ export default function App() {
         );
 
       if (labeledDescriptors.length > 0) {
-        const matcher = new faceapi.FaceMatcher(labeledDescriptors, 0.35);
+        const matcher = new faceapi.FaceMatcher(labeledDescriptors, DUPLICATE_FACE_MATCH_THRESHOLD);
         const best = matcher.findBestMatch(detections.descriptor);
-        if (best.label !== 'unknown' && best.distance < 0.5) {
+        if (best.label !== 'unknown' && best.distance < DUPLICATE_FACE_REJECT_DISTANCE) {
           const existingFaceStudent = students.find(s => s.studentId === best.label);
           throw new Error(`This face is already registered as ${formatRegisteredStudentLabel(existingFaceStudent, best.label)}. One face cannot be registered for two students.`);
         }
@@ -2350,10 +2463,17 @@ export default function App() {
 
   useEffect(() => {
     if (!allowedDesignationOptions.length) return;
-    if (!allowedDesignationOptions.includes(newUserDesignation)) {
+    const preferredDesignation = allowedDesignationOptions[0];
+    const shouldPreferFirstOption = (
+      ['admin', 'dean', 'principal'].includes(currentUserRole)
+      && newUserDesignation === 'Faculty'
+      && preferredDesignation !== 'Faculty'
+    );
+
+    if (!allowedDesignationOptions.includes(newUserDesignation) || shouldPreferFirstOption) {
       setNewUserDesignation(allowedDesignationOptions[0]);
     }
-  }, [allowedDesignationOptions, newUserDesignation]);
+  }, [allowedDesignationOptions, currentUserRole, newUserDesignation]);
 
   useEffect(() => {
     if (!availableDepartmentOptions.length) return;

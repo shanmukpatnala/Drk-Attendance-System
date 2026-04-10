@@ -21,6 +21,13 @@ export const getManageUsersAccessState = ({
         ? ['Faculty']
         : [];
 
+  const deanExists = staffUsers.some(
+    (user) => (user?.role || '').trim().toLowerCase() === 'dean'
+  );
+  const principalExists = staffUsers.some(
+    (user) => (user?.role || '').trim().toLowerCase() === 'principal'
+  );
+
   const selectedDepartmentHasHod = staffUsers.some((user) => (
     (user?.role || '').trim().toLowerCase() === 'hod'
     && ((user?.department || '').trim().toUpperCase() === normalizedNewUserDept)
@@ -28,6 +35,8 @@ export const getManageUsersAccessState = ({
 
   const allowedDesignationOptions = baseDesignationOptions.filter((designation) => {
     const normalizedDesignation = designation.toLowerCase();
+    if (normalizedDesignation === 'dean' && deanExists) return false;
+    if (normalizedDesignation === 'principal' && principalExists) return false;
     if (normalizedDesignation !== 'hod') return true;
     if (!normalizedNewUserDept) return true;
     return !selectedDepartmentHasHod;
@@ -110,7 +119,6 @@ export const createStaffHandler = ({
     !newUserFirstName ||
     !newUserLastName ||
     !newUserUser ||
-    !newUserEmail ||
     !newUserDesignation ||
     !newUserPass ||
     !newUserConfirmPass
@@ -159,12 +167,14 @@ export const createStaffHandler = ({
       return;
     }
 
-    const existingEmail = staffUsers.find(
-      (user) => (user?.email || '').trim().toLowerCase() === normalizedEmail
-    );
-    if (existingEmail) {
-      setStatusMsg({ type: 'error', text: 'This email already exists. Use a different email.' });
-      return;
+    if (normalizedEmail) {
+      const existingEmail = staffUsers.find(
+        (user) => (user?.email || '').trim().toLowerCase() === normalizedEmail
+      );
+      if (existingEmail) {
+        setStatusMsg({ type: 'error', text: 'This email already exists. Use a different email.' });
+        return;
+      }
     }
 
     if (roleToSave === 'principal') {

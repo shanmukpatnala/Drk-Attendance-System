@@ -174,12 +174,12 @@ export function ReportsScreen({
                 <div className="rounded-xl bg-slate-50 p-3">
                   <div className="text-xs font-bold uppercase text-slate-500">Recognition Details</div>
                   <div className="mt-2 text-sm text-slate-700">Attendance Date: <span className="font-semibold">{selectedStudent.date || reportDate}</span></div>
-                  <div className="mt-1 text-sm text-slate-700">Recognized Status: <span className="font-semibold">{selectedStudent.status}</span></div>
+                  <div className="mt-1 text-sm text-slate-700">Attendance Status: <span className="font-semibold">{selectedStudent.status}</span></div>
                   <div className="mt-1 text-sm text-slate-700">Time In: <span className="font-semibold">{selectedStudent.timeIn || 'N/A'}</span></div>
                 </div>
 
                 <div className="rounded-xl bg-blue-50 p-3 text-sm text-slate-700">
-                  This photo is the live face image captured during attendance for students marked present.
+                  This photo is the live attendance capture saved only when a student is marked present.
                 </div>
               </div>
             </div>

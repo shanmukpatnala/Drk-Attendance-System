@@ -34,7 +34,7 @@ export function AttendanceScreen({
               </div>
               <h2 className="mt-4 text-2xl font-black sm:text-3xl">Start attendance and mark faces within 5 seconds</h2>
               <p className="mt-3 text-sm text-red-100/90 sm:text-base">
-                Keep the camera steady, let students cross the frame naturally, and the scanner will keep matching faces continuously without waiting for manual capture.
+                Keep the camera steady, let students cross the frame naturally, and the scanner will keep matching faces continuously without waiting for manual capture. It is tuned for live group attendance with about 10 to 60 people in one scan.
               </p>
             </div>
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -45,8 +45,8 @@ export function AttendanceScreen({
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
                 <Users className="mb-2 h-5 w-5 text-amber-200" />
-                <div className="text-sm font-semibold">Continuous scan</div>
-                <div className="mt-1 text-xs text-red-100/80">No need to stop each person for a manual snapshot.</div>
+                <div className="text-sm font-semibold">10 to 60 faces</div>
+                <div className="mt-1 text-xs text-red-100/80">Designed for a classroom group instead of only one student at a time.</div>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
                 <ShieldCheck className="mb-2 h-5 w-5 text-amber-200" />
@@ -96,8 +96,8 @@ export function AttendanceScreen({
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Best result</div>
-                    <div className="mt-2 text-sm font-bold text-slate-900">Face straight, light on</div>
-                    <div className="mt-1 text-xs text-slate-500">Works while walking, but clear light helps.</div>
+                    <div className="mt-2 text-sm font-bold text-slate-900">Wide frame, clear light</div>
+                    <div className="mt-1 text-xs text-slate-500">For 10 to 60 students, keep all faces visible and avoid crowding the camera edges.</div>
                   </div>
                 </div>
 
