@@ -30,6 +30,7 @@ export function Header({ appUser, todayCount, onMenuClick }) {
             </div>
           </div>
         </div>
+
         <div className="flex items-center gap-3">
           <div className="hidden sm:block text-sm text-red-200">{appUser?.name || ''}</div>
           <div

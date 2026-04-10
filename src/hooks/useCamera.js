@@ -19,8 +19,8 @@ export function useCamera() {
       const constraints = {
         video: {
           facingMode: facing,
-          width: { ideal: 480 },
-          height: { ideal: 360 },
+          width: { ideal: 640, min: 480 },
+          height: { ideal: 480, min: 360 },
           frameRate: { ideal: 30, max: 60 }
         },
         audio: false

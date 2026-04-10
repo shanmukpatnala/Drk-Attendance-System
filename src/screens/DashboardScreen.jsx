@@ -64,6 +64,9 @@ export function DashboardScreen({
 
   return (
     <div className="space-y-6">
+      <div className="dashboard-brand-title text-center text-xl font-bold text-slate-900 sm:text-2xl">
+        Attendance Management System
+      </div>
       <div className="bg-gradient-to-r from-red-800 to-red-900 rounded-2xl p-4 text-white shadow-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
