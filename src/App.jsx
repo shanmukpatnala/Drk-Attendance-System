@@ -21,34 +21,40 @@ import { SendReportModal, IDCardModal, OverwriteModal, UnidentifiedFaceModal, Al
 import { Header, BottomNav, Message } from './components';
 
 const CAMERA_CONSTRAINTS = {
-  width: { ideal: 1920, max: 1920 },
-  height: { ideal: 1080, max: 1080 },
-  frameRate: { ideal: 24, max: 30 }
+  width: { ideal: 960, max: 960 },
+  height: { ideal: 540, max: 540 },
+  frameRate: { ideal: 24, max: 24 }
 };
 
 const MOBILENET_MIN_CONFIDENCE = 0.4;
-const ATTENDANCE_MATCH_THRESHOLD = 0.4;
-const ATTENDANCE_AMBIGUITY_GAP = 0.06;
-const ATTENDANCE_RECHECK_THRESHOLD = 0.42;
-const ATTENDANCE_RECHECK_AMBIGUITY_GAP = 0.04;
-const ATTENDANCE_MIN_DETECTION_SCORE = 0.82;
-const ATTENDANCE_MIN_FACE_SIZE = 90;
-const ATTENDANCE_MIN_FACE_AREA_RATIO = 0.015;
-const ATTENDANCE_FRAME_MARGIN_RATIO = 0.03;
-const ATTENDANCE_CROWD_MIN_DETECTION_SCORE = 0.58;
-const ATTENDANCE_CROWD_MIN_FACE_SIZE = 56;
-const ATTENDANCE_CROWD_MIN_FACE_AREA_RATIO = 0.0035;
+const ATTENDANCE_MATCH_THRESHOLD = 0.38;
+const ATTENDANCE_AMBIGUITY_GAP = 0.07;
+const ATTENDANCE_RECHECK_THRESHOLD = 0.4;
+const ATTENDANCE_RECHECK_AMBIGUITY_GAP = 0.05;
+const ATTENDANCE_OVERLAP_IOU_THRESHOLD = 0.55;
+const ATTENDANCE_MIN_DETECTION_SCORE = 0.72;
+const ATTENDANCE_MIN_FACE_SIZE = 72;
+const ATTENDANCE_MIN_FACE_AREA_RATIO = 0.01;
+const ATTENDANCE_FRAME_MARGIN_RATIO = 0.02;
+const ATTENDANCE_MULTI_FACE_MIN_FACES = 2;
+const ATTENDANCE_MULTI_MIN_DETECTION_SCORE = 0.45;
+const ATTENDANCE_MULTI_MIN_FACE_SIZE = 44;
+const ATTENDANCE_MULTI_MIN_FACE_AREA_RATIO = 0.0025;
+const ATTENDANCE_MULTI_FRAME_MARGIN_RATIO = 0.015;
+const ATTENDANCE_CROWD_MIN_DETECTION_SCORE = 0.5;
+const ATTENDANCE_CROWD_MIN_FACE_SIZE = 48;
+const ATTENDANCE_CROWD_MIN_FACE_AREA_RATIO = 0.0025;
 const ATTENDANCE_CROWD_FRAME_MARGIN_RATIO = 0.015;
 const DUPLICATE_FACE_MATCH_THRESHOLD = 0.4;
 const DUPLICATE_FACE_REJECT_DISTANCE = 0.42;
 const UNKNOWN_FACE_CONFIRMATION_COUNT = 3;
 const ALREADY_PRESENT_POPUP_COOLDOWN_MS = 8000;
 const ATTENDANCE_DETECTOR_OPTIONS = {
-  inputSize: 608,
+  inputSize: 416,
   scoreThreshold: 0.12
 };
 
-const ATTENDANCE_PROCESSING_WIDTH = 1920;
+const ATTENDANCE_PROCESSING_WIDTH = 1280;
 const ATTENDANCE_BULK_SCAN_MIN_FACES = 10;
 const ATTENDANCE_MAX_FACES_PER_SCAN = 60;
 const ATTENDANCE_UNKNOWN_PROMPT_MAX_FACES = 4;
@@ -711,17 +717,26 @@ export default function App() {
     const frameWidth = meta?.processedWidth || videoRef.current?.videoWidth || 0;
     const frameHeight = meta?.processedHeight || videoRef.current?.videoHeight || 0;
     const isCrowdFrame = facesInFrame >= ATTENDANCE_BULK_SCAN_MIN_FACES;
+    const isMultiFaceFrame = facesInFrame >= ATTENDANCE_MULTI_FACE_MIN_FACES;
     const minDetectionScore = isCrowdFrame
       ? ATTENDANCE_CROWD_MIN_DETECTION_SCORE
+      : isMultiFaceFrame
+        ? ATTENDANCE_MULTI_MIN_DETECTION_SCORE
       : ATTENDANCE_MIN_DETECTION_SCORE;
     const minFaceSize = isCrowdFrame
       ? ATTENDANCE_CROWD_MIN_FACE_SIZE
+      : isMultiFaceFrame
+        ? ATTENDANCE_MULTI_MIN_FACE_SIZE
       : ATTENDANCE_MIN_FACE_SIZE;
     const minFaceAreaRatio = isCrowdFrame
       ? ATTENDANCE_CROWD_MIN_FACE_AREA_RATIO
+      : isMultiFaceFrame
+        ? ATTENDANCE_MULTI_MIN_FACE_AREA_RATIO
       : ATTENDANCE_MIN_FACE_AREA_RATIO;
     const frameMarginRatio = isCrowdFrame
       ? ATTENDANCE_CROWD_FRAME_MARGIN_RATIO
+      : isMultiFaceFrame
+        ? ATTENDANCE_MULTI_FRAME_MARGIN_RATIO
       : ATTENDANCE_FRAME_MARGIN_RATIO;
 
     if (!box || !frameWidth || !frameHeight) return false;
@@ -821,14 +836,8 @@ export default function App() {
     closeUnidentifiedFaceModal();
   };
 
-  const openAlreadyPresentModal = (student, facePhoto = '') => {
-    if (!student?.studentId) return;
-
-    const now = Date.now();
-    const lastShownAt = alreadyPresentPopupRef.current.get(student.studentId) || 0;
-    if ((now - lastShownAt) < ALREADY_PRESENT_POPUP_COOLDOWN_MS) return;
-
-    alreadyPresentPopupRef.current.set(student.studentId, now);
+  const buildAlreadyPresentDetail = (student, facePhoto = '') => {
+    if (!student?.studentId) return null;
 
     const todayId = getTodayDateId();
     const todayLog = attendanceLogs.find(log =>
@@ -837,7 +846,7 @@ export default function App() {
       && (log.status || '') === 'Present'
     );
 
-    setAlreadyPresentModal({
+    return {
       name: student.name || '',
       studentId: student.studentId || '',
       branch: student.branch || '',
@@ -845,7 +854,31 @@ export default function App() {
       facePhoto: facePhoto || todayLog?.facePhoto || student.photo || '',
       timeIn: todayLog?.timeIn || '',
       dateId: todayId
+    };
+  };
+
+  const openAlreadyPresentModal = (studentsOrDetails, fallbackFacePhoto = '') => {
+    const entries = Array.isArray(studentsOrDetails) ? studentsOrDetails : [{ student: studentsOrDetails, facePhoto: fallbackFacePhoto }];
+    const now = Date.now();
+    const details = [];
+
+    entries.forEach((entry) => {
+      const student = entry?.student || entry;
+      const facePhoto = entry?.facePhoto || '';
+      if (!student?.studentId) return;
+
+      const lastShownAt = alreadyPresentPopupRef.current.get(student.studentId) || 0;
+      if ((now - lastShownAt) < ALREADY_PRESENT_POPUP_COOLDOWN_MS) return;
+
+      alreadyPresentPopupRef.current.set(student.studentId, now);
+      const detail = buildAlreadyPresentDetail(student, facePhoto);
+      if (detail) {
+        details.push(detail);
+      }
     });
+
+    if (!details.length) return;
+    setAlreadyPresentModal(details);
   };
 
   // check and register: uses face-api only when regMode==='live' and regStep==='camera'
@@ -1083,6 +1116,46 @@ export default function App() {
     return Math.sqrt(sum);
   };
 
+  const getIntersectionOverUnion = (leftBox, rightBox) => {
+    if (!leftBox || !rightBox) return 0;
+
+    const overlapX1 = Math.max(leftBox.x, rightBox.x);
+    const overlapY1 = Math.max(leftBox.y, rightBox.y);
+    const overlapX2 = Math.min(leftBox.x + leftBox.width, rightBox.x + rightBox.width);
+    const overlapY2 = Math.min(leftBox.y + leftBox.height, rightBox.y + rightBox.height);
+    const overlapWidth = Math.max(0, overlapX2 - overlapX1);
+    const overlapHeight = Math.max(0, overlapY2 - overlapY1);
+    const intersectionArea = overlapWidth * overlapHeight;
+
+    if (!intersectionArea) return 0;
+
+    const leftArea = Math.max(0, leftBox.width) * Math.max(0, leftBox.height);
+    const rightArea = Math.max(0, rightBox.width) * Math.max(0, rightBox.height);
+    const unionArea = leftArea + rightArea - intersectionArea;
+
+    return unionArea > 0 ? intersectionArea / unionArea : 0;
+  };
+
+  const dedupeAttendanceDetections = (detections = []) => {
+    const uniqueDetections = [];
+
+    detections.forEach((detection) => {
+      const box = detection?.detection?.box;
+      if (!box) return;
+
+      const overlapsExisting = uniqueDetections.some(existing => {
+        const existingBox = existing?.detection?.box;
+        return getIntersectionOverUnion(box, existingBox) >= ATTENDANCE_OVERLAP_IOU_THRESHOLD;
+      });
+
+      if (!overlapsExisting) {
+        uniqueDetections.push(detection);
+      }
+    });
+
+    return uniqueDetections;
+  };
+
   const findBestAttendanceMatch = (
     descriptor,
     threshold = ATTENDANCE_MATCH_THRESHOLD,
@@ -1105,7 +1178,6 @@ export default function App() {
     const secondBestMatch = rankedMatches[1];
     const isTooFar = bestMatch.distance > threshold;
     const isAmbiguous = secondBestMatch && (secondBestMatch.distance - bestMatch.distance) < ambiguityGap;
-
     if (isTooFar || isAmbiguous) return null;
 
     return bestMatch;
@@ -1156,7 +1228,7 @@ export default function App() {
           ? new Float32Array(student.descriptor)
           : null;
 
-        if (student.photo) {
+        if (!descriptor && student.photo) {
           try {
             const photoDescriptor = await loadDescriptorFromImage(student.photo);
             if (photoDescriptor) {
@@ -1293,10 +1365,10 @@ export default function App() {
         return;
       }
 
-      const prioritizedDetections = [...detections]
+      const prioritizedDetections = dedupeAttendanceDetections([...detections]
         .filter(det => isReliableAttendanceDetection(det, detections.length))
         .sort((left, right) => (right?.detection?.score || 0) - (left?.detection?.score || 0))
-        .slice(0, ATTENDANCE_MAX_FACES_PER_SCAN);
+        .slice(0, ATTENDANCE_MAX_FACES_PER_SCAN));
       const bulkScanMode = prioritizedDetections.length >= ATTENDANCE_BULK_SCAN_MIN_FACES;
       const allowUnknownPrompt = !bulkScanMode && prioritizedDetections.length <= ATTENDANCE_UNKNOWN_PROMPT_MAX_FACES;
 
@@ -1323,6 +1395,7 @@ export default function App() {
 
       const recognizedStudents = [];
       const bestDetectionByStudent = new Map();
+      const alreadyPresentStudents = new Map();
       let shouldPromptUnknownFace = false;
 
       for (const det of prioritizedDetections) {
@@ -1343,7 +1416,7 @@ export default function App() {
         if (!facePhoto) continue;
         if (markedTodayRef.current.has(sid) || localMarkedRef.current.has(sid)) {
           if (!bulkScanMode) {
-            openAlreadyPresentModal(st, facePhoto);
+            alreadyPresentStudents.set(sid, { student: st, facePhoto });
           }
           continue;
         }
@@ -1382,6 +1455,10 @@ export default function App() {
             ? `Group scan marked ${recognizedStudents.length} students from ${prioritizedDetections.length} detected faces`
             : `Marked ${recognizedStudents.length} present in under 5 seconds`
         });
+      }
+
+      if (!bulkScanMode && alreadyPresentStudents.size) {
+        openAlreadyPresentModal([...alreadyPresentStudents.values()]);
       }
 
       if (shouldPromptUnknownFace) {

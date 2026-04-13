@@ -6,7 +6,7 @@ import { EMAILJS_PUBLIC_KEY, EMAILJS_SERVICE_ID } from './constants';
 
 const DEFAULT_ADMIN_DOC_ID = 'default_admin_account';
 const DEFAULT_ADMIN_USERNAME = 'admin';
-const DEFAULT_ADMIN_PASSWORD = '9701313519';
+const DEFAULT_ADMIN_PASSWORD = 'Drk@2004';
 
 const isUserActive = (user) => (
   user?.active !== false && (user?.status || 'active').toLowerCase() !== 'inactive'
